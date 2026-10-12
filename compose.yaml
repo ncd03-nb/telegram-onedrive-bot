@@ -1,0 +1,22 @@
+services:
+  bot:
+    build: .
+    image: telegram-onedrive-bot:local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 512m
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

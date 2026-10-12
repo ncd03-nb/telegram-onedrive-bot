@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+config/*
+!config/.gitkeep
+data/*
+!data/.gitkeep
+google-client*.json
+*.zip
+.tools/
+screenshots/
