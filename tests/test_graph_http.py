@@ -1,3 +1,5 @@
+import base64
+import json
 import unittest
 from unittest.mock import AsyncMock
 
@@ -48,6 +50,11 @@ class GraphHttpTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OAuthOutputTests(unittest.TestCase):
+    def test_rclone_encoded_config_token(self):
+        obj = {"access_token": "fixture", "refresh_token": "fixture2"}
+        blob = base64.urlsafe_b64encode(json.dumps({"token": json.dumps(obj)}).encode()).rstrip(b"=").decode()
+        self.assertEqual(extract_token("Paste the following into your remote machine --->\n" + blob + "\n<---End paste"), obj)
+
     def test_only_token_object_is_selected(self):
         output = 'Log {not-json}\n {"other": 1}\n {"access_token":"fixture", "refresh_token":"fixture2"}\nEnd'
         self.assertEqual(extract_token(output)["refresh_token"], "fixture2")

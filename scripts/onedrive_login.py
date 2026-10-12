@@ -12,6 +12,14 @@ from pathlib import Path
 
 
 def extract_token(output):
+    # With an input config blob rclone returns a raw URL-safe base64 config map.
+    match = re.search(r"--->\s*([A-Za-z0-9_-]+)\s*<---End paste", output)
+    if match:
+        encoded = match.group(1)
+        config = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        obj = json.loads(config.get("token", "{}"))
+        if isinstance(obj, dict) and obj.get("access_token") and obj.get("refresh_token"):
+            return obj
     decoder = json.JSONDecoder()
     for match in re.finditer(r"\{", output):
         try:

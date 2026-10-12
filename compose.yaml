@@ -8,7 +8,7 @@ services:
       - ./config:/config
       - ./data:/data
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${HOST_PORT:-8081}:${PORT:-8080}"
     mem_limit: 512m
     stop_grace_period: 30s
     security_opt:

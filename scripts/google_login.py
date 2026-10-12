@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import secrets
+import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -14,9 +15,11 @@ from pathlib import Path
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Đăng nhập Google Drive (quyền chỉ đọc).")
     parser.add_argument("--client", required=True, type=Path, help="Google OAuth Desktop client JSON")
     parser.add_argument("--output", type=Path, default=Path("config/google-token.json"))
+    parser.add_argument("--no-open-browser", action="store_true", help="Ghi URL vào config/google-auth-url.txt để mở bằng trình duyệt tùy chọn")
     args = parser.parse_args()
     config = json.loads(args.client.read_text(encoding="utf-8"))
     client = config.get("installed")
@@ -48,7 +51,13 @@ def main():
         "access_type": "offline", "prompt": "consent", "state": state,
         "code_challenge": challenge, "code_challenge_method": "S256"})
     print("Trình duyệt sẽ mở đăng nhập Google. Không gửi token vào Telegram.")
-    webbrowser.open("https://accounts.google.com/o/oauth2/v2/auth?" + query)
+    auth_file = Path("config/google-auth-url.txt")
+    auth_file.parent.mkdir(parents=True, exist_ok=True)
+    auth_file.write_text("https://accounts.google.com/o/oauth2/v2/auth?" + query, encoding="utf-8")
+    if args.no_open_browser:
+        print("URL đăng nhập nằm trong " + str(auth_file) + ". Không chia sẻ URL OAuth.", flush=True)
+    else:
+        webbrowser.open("https://accounts.google.com/o/oauth2/v2/auth?" + query)
     timer = threading.Timer(300, server.shutdown)
     timer.daemon = True
     timer.start()
@@ -57,6 +66,7 @@ def main():
     finally:
         timer.cancel()
         server.server_close()
+        auth_file.unlink(missing_ok=True)
     if not result.get("code"):
         raise SystemExit("Chưa nhận đăng nhập sau 5 phút. Chạy lại lệnh.")
     data = urllib.parse.urlencode({"code": result["code"], "client_id": client["client_id"],

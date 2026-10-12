@@ -99,7 +99,7 @@ docker compose up -d --build
 docker compose logs -f --tail 50 bot
 ```
 
-`/health` được bind ở `http://127.0.0.1:8080/health`, không cần mở cổng Internet cho chế độ polling. Compose giữ OAuth và hàng đợi trong `./config` và `./data`, giới hạn RAM container 512 MB và tự khởi động lại khi Docker daemon hoạt động.
+`/health` được bind ở `http://127.0.0.1:8081/health` (đổi bằng `HOST_PORT`), không cần mở cổng Internet cho chế độ polling. Compose giữ OAuth và hàng đợi trong `./config` và `./data`, giới hạn RAM container 512 MB và tự khởi động lại khi Docker daemon hoạt động.
 
 Nếu đưa lên Ubuntu / Oracle A1, cài Docker Engine + Compose theo [tài liệu Docker](https://docs.docker.com/engine/install/ubuntu/), chuyển thư mục này và hai file cấu hình bí mật qua SSH. Chuẩn bị quyền volume cho user container UID 10001:
 
