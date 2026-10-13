@@ -19,6 +19,8 @@
 - Đã tham khảo `.github/workflows/port.yml` và `scripts/notify.py` của [HyperOS_OnePlus](https://github.com/ncd03-nb/HyperOS_OnePlus).
 - Workflow [38330093326](https://github.com/ncd03-nb/telegram-onedrive-bot/actions/runs/38330093326) trên runner GitHub Ubuntu hoàn tất thành công: tải/upload file thử rclone ZIP 31.488.864 byte. Bước transfer chạy 23 giây. Kết quả artifact xác nhận `done`, `links_notified=true`, `manifest=1`; controller import kết quả, giữ đúng hạn 12 giờ.
 - Host Docker đã chuyển sang `TRANSFER_BACKEND=actions`; tiến độ / link do runner gửi về chat chủ bot, runner không chạy Telegram polling. `/health` bổ sung backend và cờ có token dispatch để kiểm tra cấu hình Render mà không lộ token.
+- Sau người dùng nhập cấu hình Render, health HTTPS trả `mode=standby`, `transfer_backend=actions`, `actions_configured=true`; Docker trả `mode=polling` với cùng backend. Đây là xác nhận cấu hình token có mặt, chưa phải kiểm thử webhook failover thật.
+- OneDrive file thử có đúng ID / kích thước; tải Range 64 KiB đầu trả HTTP 206 và SHA256 mẫu khớp bản rclone ZIP gốc. TTL giữ đúng 43.200 giây. Tải lại toàn bộ 31 MB từ máy local đã chạm timeout do đường truyền chậm, nên không tuyên bố đã so SHA256 toàn file từ OneDrive.
 
 Test download Drive dùng metadata mô phỏng kích thước 10 GiB; **chưa chuyển file 10 GB thật qua Google / Microsoft**. Unit tests upload cloud dùng rclone subprocess fixture, smoke bổ sung dùng OneDrive thật như trên. Chưa deploy lên Oracle, chưa benchmark mạng, chưa build ARM64 hoặc thực hiện chuyển Telegram webhook sang Render thật. Cần thử một file Drive nhỏ trước rồi một file 10 GB. Google app Testing cấp refresh token 7 ngày; đây không phải OAuth vĩnh viễn.
 

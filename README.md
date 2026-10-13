@@ -9,7 +9,7 @@ Bạn cần token bot, Telegram user ID, đăng nhập OneDrive bằng mail sinh
 - Repo riêng tư: [ncd03-nb/telegram-onedrive-bot](https://github.com/ncd03-nb/telegram-onedrive-bot).
 - Host chính chạy Docker polling tại máy Windows này; [health local](http://127.0.0.1:8081/health). `TRANSFER_BACKEND=actions` chọn runner GitHub.
 - OneDrive sinh viên và Google Drive OAuth chỉ đọc đã kết nối; Drive API đã được kiểm tra từ container chính.
-- Host dự phòng: [Render Dashboard](https://dashboard.render.com/web/srv-db6n7aui0phs73d7bhj0), gói Free, Singapore; [health](https://telegram-onedrive-standby.onrender.com/health) trả mode `standby`. Kết nối Telegram / OneDrive / Google đã lưu riêng trên Render, không có trong Git. Sau khi thêm backend Actions, cần nhập `ACTIONS_DISPATCH_TOKEN` riêng cho Render trước khi chuyển host.
+- Host dự phòng: [Render Dashboard](https://dashboard.render.com/web/srv-db6n7aui0phs73d7bhj0), gói Free, Singapore; [health](https://telegram-onedrive-standby.onrender.com/health) trả mode `standby`, backend `actions`, `actions_configured=true`. Người dùng đã nhập token dispatch vào Render; kết nối lưu riêng, không có trong Git. Chưa thực hiện chuyển Telegram webhook sang Render.
 - Render chưa nhận lệnh Telegram. Làm theo mục **Host dự phòng Render Free** bên dưới khi cần chuyển host; không bật hai host cùng lúc.
 - Google app hiện đang Testing: cần đăng nhập lại sau 7 ngày nếu chưa đổi trạng thái; cập nhật cả OAuth local lẫn bản Render sau khi đăng nhập lại.
 
