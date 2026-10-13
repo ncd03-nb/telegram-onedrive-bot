@@ -1,12 +1,13 @@
 import asyncio
 import io
 import json
+import os
 import tempfile
 import time
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from app.actions import Actions, decode_result
 from app.main import Bot
@@ -128,6 +129,16 @@ class ActionsTests(unittest.IsolatedAsyncioTestCase):
         job=self.bot.store.claim()
         self.assertEqual(job['backend'],'actions')
         self.assertEqual(job['message_id'],77)
+
+    def test_chunk_sizes_respect_graph_fragment_constraints(self):
+        env={'TELEGRAM_BOT_TOKEN':'123:fake','ALLOWED_USER_IDS':'1','BOT_MODE':'standby','DATA_DIR':self.temp.name}
+        for value in ('0','6','60'):
+            with self.subTest(value=value), patch.dict(os.environ,{**env,'ONEDRIVE_CHUNK_MIB':value},clear=True):
+                with self.assertRaises(ValueError):Settings.load()
+        with patch.dict(os.environ,{**env,'ONEDRIVE_CHUNK_MIB':'50'},clear=True):
+            chunk=Settings.load().onedrive_chunk_mib*1024**2
+            self.assertEqual(chunk%327680,0)
+            self.assertLess(chunk,60*1024**2)
 
 
 if __name__=='__main__':

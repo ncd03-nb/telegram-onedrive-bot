@@ -22,6 +22,12 @@
 - Sau người dùng nhập cấu hình Render, health HTTPS trả `mode=standby`, `transfer_backend=actions`, `actions_configured=true`; Docker trả `mode=polling` với cùng backend. Đây là xác nhận cấu hình token có mặt, chưa phải kiểm thử webhook failover thật.
 - OneDrive file thử có đúng ID / kích thước; tải Range 64 KiB đầu trả HTTP 206 và SHA256 mẫu khớp bản rclone ZIP gốc. TTL giữ đúng 43.200 giây. Tải lại toàn bộ 31 MB từ máy local đã chạm timeout do đường truyền chậm, nên không tuyên bố đã so SHA256 toàn file từ OneDrive.
 
+## Sửa cảnh báo tini và thông tin tốc độ
+
+- Bỏ `docker run --init` vì Dockerfile đã có `/usr/bin/tini` làm entrypoint; lệnh Docker kiểm tra PID 1 xác nhận tini và Python có parent PID 1, không xuất hiện cảnh báo init lồng nhau.
+- Tiến độ bổ sung tốc độ trung bình, ETA và log an toàn trong Actions. 48 tests pass trên Windows, bao gồm kiểm tra chunk 50 MiB chia hết 320 KiB và dưới giới hạn Graph 60 MiB.
+- Runner mới dùng chunk 50 MiB để giảm lượt upload; chưa benchmark cải thiện tốc độ hoặc thực hiện live upload mới với chunk 50 MiB. Workflow đang chạy trước thay đổi giữ cấu hình 10 MiB của commit cũ.
+
 Test download Drive dùng metadata mô phỏng kích thước 10 GiB; **chưa chuyển file 10 GB thật qua Google / Microsoft**. Unit tests upload cloud dùng rclone subprocess fixture, smoke bổ sung dùng OneDrive thật như trên. Chưa deploy lên Oracle, chưa benchmark mạng, chưa build ARM64 hoặc thực hiện chuyển Telegram webhook sang Render thật. Cần thử một file Drive nhỏ trước rồi một file 10 GB. Google app Testing cấp refresh token 7 ngày; đây không phải OAuth vĩnh viễn.
 
 Lệnh smoke (tests không được đóng trong production image):

@@ -62,12 +62,13 @@ jobs:
           MAX_FILE_GIB: ${{ inputs.max_file_gib }}
           RETENTION_HOURS: ${{ inputs.retention_hours }}
         run: |
-          docker run --rm --init --name onedrive-worker --stop-timeout 25 \
+          docker run --rm --name onedrive-worker --stop-timeout 25 \
             -v "$RUNNER_TEMP/od-config:/config" -v "$RUNNER_TEMP/od-data:/data" \
             -v "$RUNNER_TEMP/od-result:/result" \
             -e TELEGRAM_BOT_TOKEN -e ALLOWED_USER_IDS -e RCLONE_CONFIG_B64 -e GOOGLE_TOKEN_B64 \
             -e JOB_ID -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
             -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
+            -e ONEDRIVE_CHUNK_MIB=50 \
             -e RESULT_PATH=/result/result.json onedrive-worker python -m app.action_runner
       - name: Store small result for controller recovery
         if: always()

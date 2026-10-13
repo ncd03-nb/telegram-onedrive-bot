@@ -40,7 +40,7 @@ class Transfer:
         self.verified = {}
 
     def flags(self):
-        return ["--config", str(self.s.config), "--onedrive-chunk-size", "10Mi",
+        return ["--config", str(self.s.config), "--onedrive-chunk-size", f"{self.s.onedrive_chunk_mib}Mi",
                 "--buffer-size", "1Mi", "--transfers", "1", "--checkers", "1",
                 "--retries", "1", "--low-level-retries", "10", "--contimeout", "30s",
                 "--timeout", "5m", "--stats", "0", "--log-level", "ERROR"]

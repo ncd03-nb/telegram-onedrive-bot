@@ -25,6 +25,7 @@ class Settings:
     rclone: str = "rclone"
     retention_hours: int = 12
     cleanup_interval: int = 60
+    onedrive_chunk_mib: int = 10
     transfer_backend: str = "local"
     github_token: str = ""
     github_repo: str = "ncd03-nb/telegram-onedrive-bot"
@@ -51,6 +52,7 @@ class Settings:
                 rclone=os.environ.get("RCLONE_BINARY", "rclone"),
                 retention_hours=int(os.environ.get("RETENTION_HOURS", "12")),
                 cleanup_interval=int(os.environ.get("CLEANUP_INTERVAL_SECONDS", "60")),
+                onedrive_chunk_mib=int(os.environ.get("ONEDRIVE_CHUNK_MIB", "10")),
                 transfer_backend=os.environ.get("TRANSFER_BACKEND", "local"),
                 github_token=os.environ.get("ACTIONS_DISPATCH_TOKEN", ""),
                 github_repo=os.environ.get("ACTIONS_REPO", "ncd03-nb/telegram-onedrive-bot"),
@@ -63,6 +65,8 @@ class Settings:
             raise ValueError("Cần ACTIONS_DISPATCH_TOKEN để chạy GitHub Actions.")
         if s.mode not in {"polling", "webhook", "standby"}:
             raise ValueError("BOT_MODE phải là polling, webhook hoặc standby.")
+        if not 5 <= s.onedrive_chunk_mib <= 50 or s.onedrive_chunk_mib % 5:
+            raise ValueError("ONEDRIVE_CHUNK_MIB phải là bội số 5 từ 5 đến 50 MiB.")
         if s.max_bytes <= 0 or s.spool_bytes < 0 or s.transfer_timeout <= 0 or s.retention_hours <= 0 or s.cleanup_interval < 10:
             raise ValueError("Giới hạn dung lượng / thời gian không hợp lệ.")
         if not re.fullmatch(r"[\w-]+:[^\\]*", s.destination) or any(x in {".", ".."} for x in s.destination.split(":", 1)[1].split("/")):

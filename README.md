@@ -163,6 +163,10 @@ Gửi link trần cũng được. File được lưu ở `TelegramUploads/<mã t
 
 Bot gửi ngay một tin nhắn 0% khi nhận lệnh. Sau thời gian chờ runner / build container, runner sửa tin nhắn đó khoảng 15 giây một lần, kể cả lúc nguồn chậm hoặc OneDrive đang commit. % là số byte đã đọc và đưa vào luồng upload / tổng dung lượng; giữ tối đa 99% trước khi xác minh file đích. Chỉ hiện 100% và gửi link sau khi upload kết thúc, kích thước được xác minh. Đây là một luồng tải → upload đồng thời, không cộng hai lần dung lượng file. `/status` cho biết trạng thái workflow; % trực tiếp nằm trên tin nhắn tiến độ.
 
+Tin nhắn có tốc độ trung bình và thời gian còn lại ước tính; khi đọc hết nguồn nhưng chưa xác minh đích, bot hiển thị “Đang xác minh OneDrive”. Runner in log mỗi lần cập nhật gồm %, byte, thời gian và trạng thái sửa Telegram; không in URL tải hoặc secrets. Container đã có `tini` làm PID 1, nên workflow không dùng thêm `docker run --init`.
+
+Runner Actions dùng chunk upload **50 MiB** thay vì 10 MiB để giảm số lần gọi upload, vẫn nằm dưới giới hạn 60 MiB của Graph và chia hết cho 320 KiB. Chưa có benchmark bảo đảm nhanh hơn cho tài khoản này; mạng, Google và OneDrive throttling vẫn quyết định throughput. Backend local mặc định 10 MiB; tùy chọn `ONEDRIVE_CHUNK_MIB` nhận bội số 5 từ 5 đến 50. Các thay đổi áp dụng cho workflow mới; workflow đang chạy dùng code / cấu hình của commit lúc bắt đầu.
+
 `/find <từ khóa>` (alias `/search`) tìm tối đa 10 file còn hạn mà chính bạn đã upload qua bot; `/find` liệt kê file gần đây. Lệnh này không quét toàn bộ OneDrive. `/link <mã>` trả cả hai link, `/dl <mã>` (alias `/download`) lấy link tải trực tiếp mới. Link tải Microsoft có thời hạn ngắn, thường khoảng 1 giờ, nên bot gọi Graph để lấy mới mỗi lần; không lưu URL tải ký vào DB / manifest. Lấy link không gia hạn 12 giờ.
 
 Lịch xóa bắt đầu ngay khi upload được xác nhận hoàn tất. Mặc định `RETENTION_HOURS=12`, kiểm tra mỗi `CLEANUP_INTERVAL_SECONDS=60` giây. Bot chỉ xóa file của các job hoàn tất từ phiên bản có tính năng này; không xóa file vốn có trên OneDrive hay job thất bại / hủy. Khi xóa, bot kiểm tra ID và eTag gốc, rồi dùng DELETE với If-Match: file đã chỉnh sửa, thay thế hoặc di chuyển sẽ được bảo vệ. Xóa đưa file vào Recycle Bin của OneDrive, chưa xóa vĩnh viễn hay dọn thùng rác.
@@ -213,7 +217,7 @@ Telegram chỉ có một webhook cho một bot; không chạy hai poller. Khóa 
 
 ## Tốc độ và phục hồi
 
-Luồng transfer với Google API: `Google Drive → aiohttp (block 1 MiB) → rclone stdin → OneDrive (chunk 10 MiB)`. Không có sao chép trực tiếp giữa Google và Microsoft ở phía server: dữ liệu đi qua host bot. RAM không tăng theo dung lượng file.
+Luồng transfer với Google API: `Google Drive → aiohttp (block 1 MiB) → rclone stdin → OneDrive (chunk 50 MiB trên Actions, 10 MiB local mặc định)`. Không có sao chép trực tiếp giữa Google và Microsoft ở phía server: dữ liệu đi qua runner hoặc host local. RAM không tăng theo dung lượng file.
 
 Chọn host không ngủ và có throughput tốt tới **cả Google lẫn Microsoft**. Singapore là điểm bắt đầu hợp lý cho VN / Thái Lan, chưa phải kết luận nhanh nhất nếu chưa đo. Khoảng cách Telegram chỉ ảnh hưởng nhận lệnh; throughput cloud mới quyết định thời gian file 10 GB. Giới hạn lý thuyết cho 10 GB: khoảng 13 phút 20 giây ở 100 Mbps hoặc 2 phút 40 giây ở 500 Mbps; thực tế lâu hơn do quota, API và mạng. Đây là phép tính, chưa phải benchmark.
 
