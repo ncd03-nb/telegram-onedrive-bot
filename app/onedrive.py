@@ -137,6 +137,28 @@ class OneDrive:
         return await self.request("PUT", self.by_path(folder + "/.bot-retention.json") + ":/content", payload=record,
             headers={"Content-Type": "application/json"})
 
+    async def read_manifest(self, job_id):
+        import re
+        if not re.fullmatch(r"[a-f0-9]{12}", job_id):
+            raise ValueError("Invalid job id")
+        obj = await self.item(self.s.destination.rstrip("/") + "/" + job_id + "/.bot-retention.json")
+        if "file" not in obj or not isinstance(obj.get("size"), int) or not 0 < obj["size"] <= 65536:
+            raise ValueError("Invalid manifest size")
+        url = obj.get("@microsoft.graph.downloadUrl", "")
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Invalid manifest URL")
+        # Graph's preauthenticated URL needs no bearer header. Never forward OAuth.
+        async with self.session.get(url, allow_redirects=False) as response:
+            if response.status != 200:
+                raise GraphError(response.status)
+            raw = bytearray()
+            async for chunk in response.content.iter_chunked(8192):
+                raw.extend(chunk)
+                if len(raw) > 65536:
+                    raise ValueError("Manifest too large")
+            return json.loads(raw)
+
     async def delete_manifest(self, destination):
         path = destination.rsplit("/", 1)[0] + "/.bot-retention.json"
         try:

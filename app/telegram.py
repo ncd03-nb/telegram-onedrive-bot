@@ -31,9 +31,9 @@ class Telegram:
                 return obj["result"]
         raise TelegramError("Telegram giới hạn tần suất.")
 
-    async def send(self, chat, text):
+    async def send(self, chat, text, reply_markup=None):
         return await self.call("sendMessage", chat_id=chat, text=text[:4000],
-            link_preview_options={"is_disabled": True})
+            link_preview_options={"is_disabled": True}, **({'reply_markup': reply_markup} if reply_markup else {}))
 
     async def edit(self, chat, message_id, text):
         return await self.call("editMessageText", chat_id=chat, message_id=message_id,

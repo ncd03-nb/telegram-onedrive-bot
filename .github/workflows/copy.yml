@@ -61,6 +61,7 @@ jobs:
           JOB_MESSAGE_ID: ${{ inputs.message_id }}
           MAX_FILE_GIB: ${{ inputs.max_file_gib }}
           RETENTION_HOURS: ${{ inputs.retention_hours }}
+          DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL || 'https://telegram-onedrive-standby.onrender.com' }}
         run: |
           docker run --rm --name onedrive-worker --stop-timeout 25 \
             -v "$RUNNER_TEMP/od-config:/config" -v "$RUNNER_TEMP/od-data:/data" \
@@ -69,6 +70,7 @@ jobs:
             -e JOB_ID -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
             -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
             -e ONEDRIVE_CHUNK_MIB=50 \
+            -e DOWNLOAD_BASE_URL \
             -e RESULT_PATH=/result/result.json onedrive-worker python -m app.action_runner
       - name: Store small result for controller recovery
         if: always()

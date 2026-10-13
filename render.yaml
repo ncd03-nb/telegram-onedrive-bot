@@ -8,6 +8,8 @@ services:
     envVars:
       - key: BOT_MODE
         value: standby
+      - key: DOWNLOAD_BASE_URL
+        value: https://telegram-onedrive-standby.onrender.com
       - key: TRANSFER_BACKEND
         value: actions
       - key: ACTIONS_REPO

@@ -7,7 +7,7 @@ import signal
 import time
 from pathlib import Path
 
-from .main import link_message
+from .main import link_message, link_keyboard
 from .onedrive import OneDrive
 from .progress import Progress
 from .retention import Retention
@@ -59,7 +59,8 @@ async def run():
         notified = False
         if item:
             try:
-                await telegram.send(chat, '✅ Copy hoàn tất!\n' + link_message(current, item))
+                await telegram.send(chat, '✅ Copy hoàn tất!\n' + link_message(current, item, settings=s),
+                    reply_markup=link_keyboard(s, current, item))
                 notified = True
             except Exception:
                 pass

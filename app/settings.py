@@ -5,6 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Settings:
     github_token: str = ""
     github_repo: str = "ncd03-nb/telegram-onedrive-bot"
     github_ref: str = "main"
+    download_base_url: str = ""
 
     @classmethod
     def load(cls):
@@ -56,7 +58,12 @@ class Settings:
                 transfer_backend=os.environ.get("TRANSFER_BACKEND", "local"),
                 github_token=os.environ.get("ACTIONS_DISPATCH_TOKEN", ""),
                 github_repo=os.environ.get("ACTIONS_REPO", "ncd03-nb/telegram-onedrive-bot"),
-                github_ref=os.environ.get("ACTIONS_REF", "main"))
+                github_ref=os.environ.get("ACTIONS_REF", "main"),
+                download_base_url=os.environ.get("DOWNLOAD_BASE_URL", "https://telegram-onedrive-standby.onrender.com").rstrip("/"))
+        if s.download_base_url:
+            parsed = urlsplit(s.download_base_url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path:
+                raise ValueError("DOWNLOAD_BASE_URL phải là địa chỉ gốc HTTPS.")
         if s.transfer_backend not in {"local", "actions"}:
             raise ValueError("TRANSFER_BACKEND phải là local hoặc actions.")
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", s.github_repo):

@@ -17,6 +17,7 @@ from .onedrive import OneDrive, GraphError
 from .retention import Retention
 from .actions import Actions
 from .progress import Progress
+from .downloads import Downloads, download_url
 
 log = logging.getLogger("bot")
 LOCAL_TZ = timezone(timedelta(hours=7))
@@ -61,7 +62,7 @@ def describe(j):
     return text
 
 
-def link_message(job, item, direct_only=False):
+def link_message(job, item, direct_only=False, settings=None):
     direct = item.get("@microsoft.graph.downloadUrl", "")
     web_url = item.get("webUrl", "")
     if not direct or not web_url:
@@ -70,11 +71,23 @@ def link_message(job, item, direct_only=False):
     text = f"{job['id']} — {item.get('name', 'File')}\n"
     if not direct_only:
         text += "Link file:\n" + web_url + "\n\n"
-    text += "Tải trực tiếp:\n" + direct + "\n\nLink tải tạm thời, thường khoảng 1 giờ. Hết hạn dùng /dl " + job["id"]
+    custom = download_url(settings, job) if settings else ''
+    text += "Tải trực tiếp:\n" + (custom or direct)
+    text += ("\n\nLink có hiệu lực đến hạn lưu file. Ai có link đều có thể tải."
+             if custom else "\n\nLink tải tạm thời. Hết hạn dùng /dl " + job["id"])
     text += "\nHạn lưu file: " + when
     if job.get("cleanup_error"):
         text += "\n" + job["cleanup_error"]
     return text
+
+
+def link_keyboard(settings, job, item, direct_only=False):
+    custom = download_url(settings, job)
+    rows = [[{'text': '⚡ Index Link' if custom else '⬇ Tải trực tiếp',
+              'url': custom or item['@microsoft.graph.downloadUrl']}]]
+    if not direct_only:
+        rows.append([{'text': '📁 Mở file OneDrive', 'url': item['webUrl']}])
+    return {'inline_keyboard': rows}
 
 
 class Bot:
@@ -86,6 +99,7 @@ class Bot:
         self.transfer = Transfer(settings, self.sources)
         self.drive = OneDrive(settings, self.transfer, busy=lambda: bool(self.active_id) and self.s.transfer_backend == "local")
         self.retention = Retention(settings, self.store, self.drive, self.transfer)
+        self.downloads = Downloads(settings, self.drive, self.retention)
         self.actions = Actions(settings)
         self.tasks = []
         self.active_id = None
@@ -114,6 +128,8 @@ class Bot:
         self.acquire_lock()
         self.store.recover()
         if self.s.mode == "standby":
+            if self.s.download_base_url:
+                await self.drive.start()
             log.info("Host dự phòng sẵn sàng; chưa nhận Telegram updates.")
             return
         if not shutil.which(self.s.rclone):
@@ -143,8 +159,8 @@ class Bot:
         if self.s.mode != "standby":
             await self.sources.close()
             await self.telegram.close()
-            await self.drive.close()
             await self.actions.close()
+        await self.drive.close()
         self.store.close()
         if self.lock:
             self.lock.close()
@@ -179,6 +195,10 @@ class Bot:
             return await self.telegram.send(chat, text)
         except Exception as e:
             log.warning("Không gửi được thông báo Telegram (%s); /status vẫn lưu kết quả.", type(e).__name__)
+
+    async def notify_links(self, chat, job, item, direct_only=False, prefix=''):
+        return await self.telegram.send(chat, prefix + link_message(job, item, direct_only, self.s),
+            reply_markup=link_keyboard(self.s, job, item, direct_only))
 
     async def updates(self):
         while True:
@@ -239,7 +259,7 @@ class Bot:
                 await self.notify(chat, "File tại vị trí này đã được thay thế; không trả link file khác.")
                 return
             self.store.change(job["id"], file_url=item["webUrl"], links_error="")
-            await self.notify(chat, link_message(job, item, command in {"/dl", "/download"}))
+            await self.notify_links(chat, job, item, command in {"/dl", "/download"})
         elif command == "/cancel":
             job = self.store.get(args.strip(), owner)
             if not job or job["state"] not in {"queued", "running"}:
@@ -320,7 +340,7 @@ class Bot:
                     try:
                         item = await self.retention.arm(self.store.get(job['id'], job['owner']))
                         if item:
-                            await self.notify(job['chat'], '✅ Copy hoàn tất!\n' + link_message(self.store.get(job['id'],job['owner']), item))
+                            await self.notify_links(job['chat'], self.store.get(job['id'],job['owner']), item, prefix='✅ Copy hoàn tất!\n')
                     except Exception:
                         await self.notify(job['chat'], '✅ ' + job['id'] + ' — Đã upload. Dùng /link ' + job['id'] + ' để lấy link.')
             else:
@@ -407,8 +427,8 @@ class Bot:
             await self.notify(job["chat"], describe(current))
             if item:
                 try:
-                    await self.notify(job["chat"], link_message(current, item))
-                except SourceError:
+                    await self.notify_links(job["chat"], current, item)
+                except Exception:
                     self.store.change(job["id"], links_error="Chưa lấy được link tải; dùng /link để lấy lại.")
 
     async def collector(self):
@@ -433,6 +453,7 @@ class Bot:
         healthy = all(not task.done() for task in self.tasks)
         return web.json_response({"status": "ok" if healthy else "degraded", "mode": self.s.mode,
             "transfer_backend": self.s.transfer_backend,
+            "custom_downloads": bool(self.s.download_base_url),
             "actions_configured": bool(self.s.github_token)}, status=200 if healthy else 503)
 
     async def webhook(self, request):
@@ -457,6 +478,7 @@ def create_app(settings):
     app = web.Application(client_max_size=256 * 1024)
     app.router.add_get("/health", bot.health)
     app.router.add_post("/telegram", bot.webhook)
+    app.router.add_get("/0:/{capability}/{name}", bot.downloads.handle)
     app.on_startup.append(bot.start)
     app.on_cleanup.append(bot.close)
     return app
