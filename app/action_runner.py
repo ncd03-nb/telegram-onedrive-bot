@@ -71,7 +71,7 @@ async def run():
         await progress.close(f"{job_id} — Đã hủy")
         raise
     except Exception as e:
-        error = str(e) if isinstance(e, (SourceError, TimeoutError)) else 'Lỗi nguồn / upload; kiểm tra quyền và quota.'
+        error = str(e) if isinstance(e, SourceError) else ('Nguồn hoặc upload quá thời gian; kiểm tra mạng / quota rồi thử lại.' if isinstance(e, TimeoutError) else 'Lỗi nguồn / upload; kiểm tra quyền và quota.')
         result = {'id': job_id, 'state': 'failed', 'error': error}
         await progress.close(f"{job_id} — Thất bại\n{error}")
         try:

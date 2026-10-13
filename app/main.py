@@ -282,6 +282,7 @@ class Bot:
                 self.store.change(job['id'],phase='creating_message')
                 sent = await self.notify(chat, job["id"] + " — Đang chờ runner\nTiến độ: 0%\nTin nhắn này sẽ cập nhật mỗi 15 giây khi bắt đầu chuyển.")
                 if not sent or not isinstance(sent.get("message_id"), int):
+                    self.store.change(job['id'],phase='queued')
                     raise SourceError("Chưa tạo được tin nhắn tiến độ; tác vụ đang chờ kết nối Telegram.")
                 self.store.change(job["id"], message_id=sent["message_id"])
                 self.store.change(job['id'],phase='queued')
@@ -430,7 +431,9 @@ class Bot:
 
     async def health(self, request):
         healthy = all(not task.done() for task in self.tasks)
-        return web.json_response({"status": "ok" if healthy else "degraded", "mode": self.s.mode}, status=200 if healthy else 503)
+        return web.json_response({"status": "ok" if healthy else "degraded", "mode": self.s.mode,
+            "transfer_backend": self.s.transfer_backend,
+            "actions_configured": bool(self.s.github_token)}, status=200 if healthy else 503)
 
     async def webhook(self, request):
         if self.s.mode != "webhook":

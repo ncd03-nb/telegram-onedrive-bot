@@ -13,6 +13,13 @@
 - Render Free Singapore đã triển khai service `telegram-onedrive-standby`; endpoint HTTPS `/health` trả HTTP 200 và mode `standby`. Bot chính vẫn polling; dự phòng không đăng ký webhook. URL webhook thực tế đã lưu cho bước chuyển host thủ công.
 - GitHub Actions của commit `1c3f4aa` đã chạy tests và Docker build thành công.
 
+## Backend GitHub Actions và tin nhắn tiến độ
+
+- 47 tests pass trên Windows Python 3.14 và Docker Linux Python 3.12; kiểm tra thêm dispatch không trùng sau timeout / restart, ownership artifact, giới hạn ZIP giải nén, giữ TTL gốc, timer tiến độ kể cả khi không có byte mới và 100% chỉ sau commit.
+- Đã tham khảo `.github/workflows/port.yml` và `scripts/notify.py` của [HyperOS_OnePlus](https://github.com/ncd03-nb/HyperOS_OnePlus).
+- Workflow [38330093326](https://github.com/ncd03-nb/telegram-onedrive-bot/actions/runs/38330093326) trên runner GitHub Ubuntu hoàn tất thành công: tải/upload file thử rclone ZIP 31.488.864 byte. Bước transfer chạy 23 giây. Kết quả artifact xác nhận `done`, `links_notified=true`, `manifest=1`; controller import kết quả, giữ đúng hạn 12 giờ.
+- Host Docker đã chuyển sang `TRANSFER_BACKEND=actions`; tiến độ / link do runner gửi về chat chủ bot, runner không chạy Telegram polling. `/health` bổ sung backend và cờ có token dispatch để kiểm tra cấu hình Render mà không lộ token.
+
 Test download Drive dùng metadata mô phỏng kích thước 10 GiB; **chưa chuyển file 10 GB thật qua Google / Microsoft**. Unit tests upload cloud dùng rclone subprocess fixture, smoke bổ sung dùng OneDrive thật như trên. Chưa deploy lên Oracle, chưa benchmark mạng, chưa build ARM64 hoặc thực hiện chuyển Telegram webhook sang Render thật. Cần thử một file Drive nhỏ trước rồi một file 10 GB. Google app Testing cấp refresh token 7 ngày; đây không phải OAuth vĩnh viễn.
 
 Lệnh smoke (tests không được đóng trong production image):
