@@ -59,7 +59,7 @@ async def run():
         notified = False
         if item:
             try:
-                await telegram.send(chat, '✅ Copy hoàn tất!\n' + link_message(current, item, settings=s),
+                await telegram.send(chat, link_message(current, item, settings=s),
                     reply_markup=link_keyboard(s, current, item))
                 notified = True
             except Exception:

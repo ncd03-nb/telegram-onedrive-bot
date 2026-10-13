@@ -67,26 +67,15 @@ def link_message(job, item, direct_only=False, settings=None):
     web_url = item.get("webUrl", "")
     if not direct or not web_url:
         raise SourceError("OneDrive chưa trả đủ link; dùng /link để thử lại.")
-    when = datetime.fromtimestamp(job["expires"], LOCAL_TZ).strftime("%d/%m %H:%M GMT+7")
-    text = f"{job['id']} — {item.get('name', 'File')}\n"
-    if not direct_only:
-        text += "Link file:\n" + web_url + "\n\n"
-    custom = download_url(settings, job) if settings else ''
-    text += "Tải trực tiếp:\n" + (custom or direct)
-    text += ("\n\nLink có hiệu lực đến hạn lưu file. Ai có link đều có thể tải."
-             if custom else "\n\nLink tải tạm thời. Hết hạn dùng /dl " + job["id"])
-    text += "\nHạn lưu file: " + when
-    if job.get("cleanup_error"):
-        text += "\n" + job["cleanup_error"]
-    return text
+    return "✅ Hoàn thành"
+
 
 
 def link_keyboard(settings, job, item, direct_only=False):
     custom = download_url(settings, job)
     rows = [[{'text': '⚡ Index Link' if custom else '⬇ Tải trực tiếp',
               'url': custom or item['@microsoft.graph.downloadUrl']}]]
-    if not direct_only:
-        rows.append([{'text': '📁 Mở file OneDrive', 'url': item['webUrl']}])
+    rows.append([{'text': '📁 Mở file OneDrive', 'url': item['webUrl']}])
     return {'inline_keyboard': rows}
 
 
@@ -196,8 +185,8 @@ class Bot:
         except Exception as e:
             log.warning("Không gửi được thông báo Telegram (%s); /status vẫn lưu kết quả.", type(e).__name__)
 
-    async def notify_links(self, chat, job, item, direct_only=False, prefix=''):
-        return await self.telegram.send(chat, prefix + link_message(job, item, direct_only, self.s),
+    async def notify_links(self, chat, job, item, direct_only=False):
+        return await self.telegram.send(chat, link_message(job, item, direct_only, self.s),
             reply_markup=link_keyboard(self.s, job, item, direct_only))
 
     async def updates(self):
@@ -340,7 +329,7 @@ class Bot:
                     try:
                         item = await self.retention.arm(self.store.get(job['id'], job['owner']))
                         if item:
-                            await self.notify_links(job['chat'], self.store.get(job['id'],job['owner']), item, prefix='✅ Copy hoàn tất!\n')
+                            await self.notify_links(job['chat'], self.store.get(job['id'],job['owner']), item)
                     except Exception:
                         await self.notify(job['chat'], '✅ ' + job['id'] + ' — Đã upload. Dùng /link ' + job['id'] + ' để lấy link.')
             else:
@@ -424,7 +413,8 @@ class Bot:
                     current = self.store.get(job['id'],job['owner'])
                     await reporter.close(finished=True) if current['state']=='done' else await reporter.close(describe(current))
             current = self.store.get(job["id"], job["owner"])
-            await self.notify(job["chat"], describe(current))
+            if not item:
+                await self.notify(job["chat"], describe(current))
             if item:
                 try:
                     await self.notify_links(job["chat"], current, item)

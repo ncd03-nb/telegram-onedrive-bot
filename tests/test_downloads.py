@@ -89,10 +89,10 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_telegram_custom_link_and_fallback_when_manifest_missing(self):
         text = link_message(self.job, self.item, settings=self.s)
-        self.assertIn(download_url(self.s, self.job), text)
+        self.assertEqual(text, '✅ Hoàn thành')
         self.assertNotIn('secret=temporary', text)
         self.assertEqual(link_keyboard(self.s, self.job, self.item)['inline_keyboard'][0][0]['text'], '⚡ Index Link')
-        self.assertIn('secret=temporary', link_message({**self.job, 'manifest': 0}, self.item, settings=self.s))
+        self.assertIn('secret=temporary', link_keyboard(self.s, {**self.job, 'manifest': 0}, self.item)['inline_keyboard'][0][0]['url'])
 
     async def test_key_rotation_invalidates_previous_links(self):
         old_path = urlsplit(download_url(self.s, self.job)).path

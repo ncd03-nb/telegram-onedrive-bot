@@ -137,7 +137,7 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         expiry = self.job_now()["expires"]
         await bot.handle({"update_id": 200, "message": {"text": "/dl " + self.job["id"], "from": {"id": 1}, "chat": {"id": 1, "type": "private"}}})
         self.assertEqual(self.job_now()["expires"], expiry)
-        self.assertIn("temp-download", bot.telegram.send.await_args.args[1])
+        self.assertIn("temp-download", bot.telegram.send.await_args.kwargs["reply_markup"]["inline_keyboard"][0][0]["url"])
 
 
 class GraphDeleteTests(unittest.IsolatedAsyncioTestCase):
