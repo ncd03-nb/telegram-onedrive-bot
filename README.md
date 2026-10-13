@@ -229,7 +229,7 @@ Hàng đợi SQLite có thể giữ URL riêng tư / link ký trong khi job ch�
 
 ### Link tải qua Render
 
-Bot trả tin nhắn **✅ Hoàn thành** kèm hai nút **⚡ Index Link** và **📁 Mở file OneDrive** khi hoàn tất hoặc khi dùng `/link`, `/dl`. Không hiển thị URL dài trong nội dung tin nhắn. Tên miền SharePoint gốc của trường giữ nguyên. URL có dạng `https://telegram-onedrive-standby.onrender.com/0:/<job>.<expiry>.<signature>/Tên-file.zip`.
+Bot trả tin nhắn **✅ Hoàn thành**, dòng **📄 Tên file** và duy nhất nút **⚡ Index Link** khi hoàn tất hoặc khi dùng `/link`, `/dl`. Không hiển thị URL dài trong nội dung tin nhắn. Tên miền SharePoint gốc của trường giữ nguyên. URL có dạng `https://telegram-onedrive-standby.onrender.com/0:/<job>.<expiry>.<signature>/Tên-file.zip`.
 
 `DOWNLOAD_BASE_URL` là địa chỉ HTTPS gốc; mặc định của repo này là Render hiện tại. Đặt rỗng để dùng link Microsoft trực tiếp, hoặc đổi đồng bộ ở Docker `.env`, Render env và GitHub Actions repository variable cùng tên khi đổi domain. Không cần thêm secret: chữ ký HMAC có mục đích riêng được dẫn xuất từ token bot đã có trên ba host. Đổi token bot sẽ vô hiệu hóa các Index Link cũ.
 

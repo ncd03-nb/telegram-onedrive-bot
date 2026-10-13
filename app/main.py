@@ -27,7 +27,7 @@ HELP = """Gửi link Google Drive / Dropbox / link tải trực tiếp.
 /status [mã tác vụ] — xem tiến độ
 /cancel <mã tác vụ> — hủy
 /find <từ khóa> — tìm file bot đã upload
-/link <mã tác vụ> — lấy link file + link tải mới
+/link <mã tác vụ> — lấy Index Link
 /dl <mã tác vụ> — lấy link tải trực tiếp mới
 /check — kiểm tra quota OneDrive
 /whoami — xem Telegram user ID
@@ -67,15 +67,14 @@ def link_message(job, item, direct_only=False, settings=None):
     web_url = item.get("webUrl", "")
     if not direct or not web_url:
         raise SourceError("OneDrive chưa trả đủ link; dùng /link để thử lại.")
-    return "✅ Hoàn thành"
-
+    name = item.get('name') or job['destination'].rsplit('/', 1)[-1]
+    return "✅ Hoàn thành\n📄 " + name
 
 
 def link_keyboard(settings, job, item, direct_only=False):
     custom = download_url(settings, job)
-    rows = [[{'text': '⚡ Index Link' if custom else '⬇ Tải trực tiếp',
+    rows = [[{'text': '⚡ Index Link',
               'url': custom or item['@microsoft.graph.downloadUrl']}]]
-    rows.append([{'text': '📁 Mở file OneDrive', 'url': item['webUrl']}])
     return {'inline_keyboard': rows}
 
 

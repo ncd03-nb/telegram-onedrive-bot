@@ -89,7 +89,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_telegram_custom_link_and_fallback_when_manifest_missing(self):
         text = link_message(self.job, self.item, settings=self.s)
-        self.assertEqual(text, '✅ Hoàn thành')
+        self.assertEqual(text, '✅ Hoàn thành\n📄 ' + self.item['name'])
         self.assertNotIn('secret=temporary', text)
         self.assertEqual(link_keyboard(self.s, self.job, self.item)['inline_keyboard'][0][0]['text'], '⚡ Index Link')
         self.assertIn('secret=temporary', link_keyboard(self.s, {**self.job, 'manifest': 0}, self.item)['inline_keyboard'][0][0]['url'])
