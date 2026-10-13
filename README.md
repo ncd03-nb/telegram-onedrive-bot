@@ -1,15 +1,15 @@
 # Telegram → OneDrive cho file Google Drive khoảng 10 GB
 
-Bot nhận link trong chat riêng, tải từ Google Drive bằng OAuth quyền chỉ đọc và upload theo chunk vào OneDrive Microsoft 365 Education qua rclone. Sau khi upload, bot trả link file và link tải trực tiếp, lưu file 12 giờ rồi chuyển vào thùng rác. Có Docker Compose cho host chính và Render Free cho host dự phòng kích hoạt thủ công.
+Bot nhận link trong chat riêng, dispatch GitHub Actions để tải từ Google Drive bằng OAuth chỉ đọc và upload theo chunk vào OneDrive Microsoft 365 Education qua rclone. Runner sửa cùng một tin nhắn Telegram mỗi 15 giây với tiến độ %, rồi gửi link file và link tải trực tiếp. File lưu 12 giờ rồi chuyển vào thùng rác. Docker / Render chỉ nhận lệnh, tìm file, lấy link và xử lý lịch xóa; dữ liệu file đi qua runner Actions.
 
 Bạn cần token bot, Telegram user ID, đăng nhập OneDrive bằng mail sinh viên và đăng nhập Google. Phiên đăng nhập trên web không tự cấp OAuth cho bot. Không gửi mật khẩu, token hoặc file OAuth vào chat. Repo này không chứa credentials.
 
 ## Trạng thái đã thiết lập ngày 13/10/2026
 
 - Repo riêng tư: [ncd03-nb/telegram-onedrive-bot](https://github.com/ncd03-nb/telegram-onedrive-bot).
-- Host chính đang chạy Docker polling tại máy Windows này; [health local](http://127.0.0.1:8081/health).
+- Host chính chạy Docker polling tại máy Windows này; [health local](http://127.0.0.1:8081/health). `TRANSFER_BACKEND=actions` chọn runner GitHub.
 - OneDrive sinh viên và Google Drive OAuth chỉ đọc đã kết nối; Drive API đã được kiểm tra từ container chính.
-- Host dự phòng: [Render Dashboard](https://dashboard.render.com/web/srv-db6n7aui0phs73d7bhj0), gói Free, Singapore; [health](https://telegram-onedrive-standby.onrender.com/health) trả mode `standby`. Kết nối Telegram / OneDrive / Google đã lưu riêng trên Render, không có trong Git.
+- Host dự phòng: [Render Dashboard](https://dashboard.render.com/web/srv-db6n7aui0phs73d7bhj0), gói Free, Singapore; [health](https://telegram-onedrive-standby.onrender.com/health) trả mode `standby`. Kết nối Telegram / OneDrive / Google đã lưu riêng trên Render, không có trong Git. Sau khi thêm backend Actions, cần nhập `ACTIONS_DISPATCH_TOKEN` riêng cho Render trước khi chuyển host.
 - Render chưa nhận lệnh Telegram. Làm theo mục **Host dự phòng Render Free** bên dưới khi cần chuyển host; không bật hai host cùng lúc.
 - Google app hiện đang Testing: cần đăng nhập lại sau 7 ngày nếu chưa đổi trạng thái; cập nhật cả OAuth local lẫn bản Render sau khi đăng nhập lại.
 
@@ -99,7 +99,27 @@ Bạn có thể dùng tài khoản Gmail cá nhân cho Google Drive và mail sin
 
 Không có `google-token.json`: bot vẫn thử tải Drive công khai bằng link tải / form xác nhận, nhưng luồng này phụ thuộc trang tải Google và không bảo đảm cho file 10 GB.
 
-## 4. Chạy Docker
+## 4. GitHub Actions và Docker nhận lệnh
+
+Luồng tham khảo từ [HyperOS_OnePlus](https://github.com/ncd03-nb/HyperOS_OnePlus): `workflow_dispatch` nhận mã tác vụ và `message_id`, runner sửa cùng tin nhắn rồi gửi thông báo cuối. Workflow của bot là `.github/workflows/copy.yml`; run-name `copy-<mã>`, không chạy Telegram polling trên runner.
+
+Trong repo bot, lưu Actions Secrets `TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_IDS`, `RCLONE_CONFIG_B64`, `GOOGLE_TOKEN_B64`. Controller cần token GitHub có quyền **Actions read/write** cho riêng repo, và quyền đọc artifact kết quả. Nên dùng fine-grained PAT chỉ chọn repo bot. Helper setup cần thêm quyền **Secrets read/write** khi cấu hình secrets, hoặc dùng đăng nhập Git đã lưu trên máy:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install PyNaCl
+.\.venv\Scripts\python.exe scripts/setup_actions.py --use-git-credential
+# Hoặc --token-file đường_dẫn_token_riêng
+```
+
+Helper mã hóa secrets bằng public key của repository; không in credentials. Token dispatch chỉ lưu trong `.env` của controller, không đưa vào workflow hoặc artifact. Helper tạo thêm `config/render-actions.env` để nhập biến môi trường vào Render; file này chứa token và phải giữ riêng. Token Git đã lưu có thể có quyền rộng hơn PAT chỉ repo; có thể thay `ACTIONS_DISPATCH_TOKEN` bằng PAT riêng khi muốn giới hạn.
+
+Trong `.env`: `TRANSFER_BACKEND=actions`, `ACTIONS_REPO=ncd03-nb/telegram-onedrive-bot`, `ACTIONS_REF=main`, `ACTIONS_DISPATCH_TOKEN=<token riêng>`. `TRANSFER_BACKEND=local` vẫn dùng luồng Docker cũ và có cập nhật tiến độ 15 giây.
+
+GitHub runner stream nguồn → OneDrive, không lưu cả file 10 GB trên ổ đĩa hoặc trong artifact. Artifact `result-<mã>` chỉ chứa JSON trạng thái / metadata lịch xóa, giữ 2 ngày, không chứa OAuth, URL nguồn hoặc link tải ký. Link nguồn được truyền trong inputs của repo riêng tư; người có quyền xem workflow có thể xem inputs. Giữ repo riêng tư.
+
+Controller lưu thời điểm dispatch trước khi gọi API và tìm workflow qua mã duy nhất; không tự dispatch lại khi mạng lỗi để tránh upload trùng. Khi host nhận lệnh restart, runner tiếp tục chạy và gửi tiến độ / link; controller đọc artifact khi quay lại, hoặc khôi phục manifest OneDrive. `/cancel` hủy workflow tương ứng. Hủy hoặc timeout có thể để lại file đã commit; kiểm tra thư mục tác vụ trước khi gửi lại link.
+
+Runner chuẩn Linux dùng hạn mức Actions miễn phí của tài khoản cho repo riêng tư; không có cam kết sử dụng vô hạn. Không đổi repo thành public để né quota. Giữ ngân sách Actions ở mức không cho phát sinh phí nếu cần giới hạn chi phí về 0. Mỗi workflow tối đa 355 phút, phần transfer tối đa 330 phút. Các workflow khác trong tài khoản cũng dùng hạn mức này. Xem [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
 Trên máy Windows, mở Docker Desktop với Linux containers. Tại thư mục dự án:
 
@@ -141,6 +161,8 @@ Không đưa `.env`, `config/`, `data/` lên Git. Để host chính chạy ngay 
 
 Gửi link trần cũng được. File được lưu ở `TelegramUploads/<mã tác vụ>/<tên file>` để tránh ghi đè file khác. Tên file tùy chọn có thể có khoảng trắng. Upload thành công trả hai link: URL mở file trên OneDrive và URL tải trực tiếp do Microsoft cấp. URL mở file tuân theo quyền OneDrive hiện có; URL tải trực tiếp cho phép người có URL tải trong thời gian nó còn hiệu lực.
 
+Bot gửi ngay một tin nhắn 0% khi nhận lệnh. Sau thời gian chờ runner / build container, runner sửa tin nhắn đó khoảng 15 giây một lần, kể cả lúc nguồn chậm hoặc OneDrive đang commit. % là số byte đã đọc và đưa vào luồng upload / tổng dung lượng; giữ tối đa 99% trước khi xác minh file đích. Chỉ hiện 100% và gửi link sau khi upload kết thúc, kích thước được xác minh. Đây là một luồng tải → upload đồng thời, không cộng hai lần dung lượng file. `/status` cho biết trạng thái workflow; % trực tiếp nằm trên tin nhắn tiến độ.
+
 `/find <từ khóa>` (alias `/search`) tìm tối đa 10 file còn hạn mà chính bạn đã upload qua bot; `/find` liệt kê file gần đây. Lệnh này không quét toàn bộ OneDrive. `/link <mã>` trả cả hai link, `/dl <mã>` (alias `/download`) lấy link tải trực tiếp mới. Link tải Microsoft có thời hạn ngắn, thường khoảng 1 giờ, nên bot gọi Graph để lấy mới mỗi lần; không lưu URL tải ký vào DB / manifest. Lấy link không gia hạn 12 giờ.
 
 Lịch xóa bắt đầu ngay khi upload được xác nhận hoàn tất. Mặc định `RETENTION_HOURS=12`, kiểm tra mỗi `CLEANUP_INTERVAL_SECONDS=60` giây. Bot chỉ xóa file của các job hoàn tất từ phiên bản có tính năng này; không xóa file vốn có trên OneDrive hay job thất bại / hủy. Khi xóa, bot kiểm tra ID và eTag gốc, rồi dùng DELETE với If-Match: file đã chỉnh sửa, thay thế hoặc di chuyển sẽ được bảo vệ. Xóa đưa file vào Recycle Bin của OneDrive, chưa xóa vĩnh viễn hay dọn thùng rác.
@@ -164,6 +186,7 @@ Link thiếu `Content-Length` và không có metadata Drive được tải tạm
 - `GOOGLE_TOKEN_B64`: nội dung Base64 của `config/google-token.json`.
 - `WEBHOOK_URL`: URL gốc service, ví dụ `https://telegram-onedrive-standby.onrender.com`.
 - `WEBHOOK_SECRET`: Blueprint sinh tự động; giữ giá trị 32–256 ký tự chữ, số, `_`, `-`.
+- `ACTIONS_DISPATCH_TOKEN`: token của controller có Actions read/write cho repo bot. Nhập từ file riêng `config/render-actions.env` do helper tạo; Blueprint không sinh token này. Không chia sẻ file hoặc commit token.
 
 Xuất Base64 **chỉ trong terminal riêng** rồi paste trực tiếp vào Render Secrets:
 
@@ -186,7 +209,7 @@ Base64 không phải mã hóa. Không chia sẻ output, không lưu vào README 
 2. Cập nhật cấu hình OAuth của host chính nếu có đăng nhập lại ở nơi khác, rồi chạy `docker compose up -d bot`. Chế độ polling tự xóa webhook và giữ pending updates.
 3. Xác nhận Render đã standby, host chính `/health` mode `polling`, gửi `/check`.
 
-Telegram chỉ có một webhook cho một bot; không chạy hai poller. Khóa file chỉ ngăn hai process trên cùng volume, không ngăn hai host khác nhau. Đây là **failover thủ công**, không có router / shared queue / bầu chọn leader tự động. Lịch xóa và file đã hoàn tất có thể phục hồi từ OneDrive manifest; hàng đợi và tiến độ **không đồng bộ giữa hai host**. Job đang chạy không tiếp tục từ byte cũ khi chuyển host. Render có thể ngủ hoặc restart ngay cả khi job có kết nối outbound; webhook không bảo đảm giữ host awake đến hết 10 GB hoặc xóa đúng giờ. Không dùng ping liên tục để né chính sách host miễn phí.
+Telegram chỉ có một webhook cho một bot; không chạy hai poller. Khóa file chỉ ngăn hai process trên cùng volume, không ngăn hai host khác nhau. Đây là **failover thủ công**, không có router / shared queue / bầu chọn leader tự động. Lịch xóa và file đã hoàn tất có thể phục hồi từ OneDrive manifest; hàng đợi **không đồng bộ giữa hai host**. Với backend Actions, runner đang chạy vẫn tiếp tục gửi tiến độ / link khi controller ngừng; đợi runner hiện có xong trước khi gửi lại link ở host khác. Với backend local, job không resume từ byte cũ. Render ngủ có thể làm việc nhận lệnh và xóa theo lịch trễ. Không dùng ping liên tục để né chính sách host miễn phí.
 
 ## Tốc độ và phục hồi
 

@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from aiohttp import web
+import aiohttp
 
 from .settings import Settings
 from .source import SourceError, Sources, clean_name, validate_url
@@ -14,6 +15,8 @@ from .telegram import Telegram
 from .transfer import Transfer
 from .onedrive import OneDrive, GraphError
 from .retention import Retention
+from .actions import Actions
+from .progress import Progress
 
 log = logging.getLogger("bot")
 LOCAL_TZ = timezone(timedelta(hours=7))
@@ -45,6 +48,9 @@ def describe(j):
         text += "\nĐích: " + j["destination"].split(":", 1)[-1]
     if j["error"]:
         text += "\n" + j["error"]
+    if j.get("backend") == "actions":
+        text += "\nRunner: GitHub Actions — " + (j.get("phase") or "đang chờ runner")
+        text += "\nTiến độ % được cập nhật trên tin nhắn tác vụ mỗi 15 giây."
     if j.get("expires"):
         when = datetime.fromtimestamp(j["expires"], LOCAL_TZ).strftime("%d/%m %H:%M GMT+7")
         text += "\nHạn lưu: " + when
@@ -78,8 +84,9 @@ class Bot:
         self.telegram = Telegram(settings.token)
         self.sources = Sources(settings)
         self.transfer = Transfer(settings, self.sources)
-        self.drive = OneDrive(settings, self.transfer, busy=lambda: bool(self.active_id))
+        self.drive = OneDrive(settings, self.transfer, busy=lambda: bool(self.active_id) and self.s.transfer_backend == "local")
         self.retention = Retention(settings, self.store, self.drive, self.transfer)
+        self.actions = Actions(settings)
         self.tasks = []
         self.active_id = None
         self.active_task = None
@@ -114,6 +121,7 @@ class Bot:
         await self.telegram.start()
         await self.sources.start()
         await self.drive.start()
+        await self.actions.start()
         if self.s.mode == "polling":
             await self.telegram.call("deleteWebhook", drop_pending_updates=False)
         else:
@@ -136,6 +144,7 @@ class Bot:
             await self.sources.close()
             await self.telegram.close()
             await self.drive.close()
+            await self.actions.close()
         self.store.close()
         if self.lock:
             self.lock.close()
@@ -167,7 +176,7 @@ class Bot:
 
     async def notify(self, chat, text):
         try:
-            await self.telegram.send(chat, text)
+            return await self.telegram.send(chat, text)
         except Exception as e:
             log.warning("Không gửi được thông báo Telegram (%s); /status vẫn lưu kết quả.", type(e).__name__)
 
@@ -236,6 +245,12 @@ class Bot:
             if not job or job["state"] not in {"queued", "running"}:
                 await self.notify(chat, "Không tìm thấy tác vụ đang chờ / chạy thuộc tài khoản bạn.")
                 return
+            if job["backend"] == "actions" and job["dispatch_at"]:
+                run = await self.actions.find_run(job) if not job["run_id"] else {"id": job["run_id"]}
+                if not run:
+                    await self.notify(chat, "GitHub đang nhận workflow; đợi runner xuất hiện rồi /cancel lại để hủy cả upload.")
+                    return
+                await self.actions.cancel(run["id"])
             self.store.change(job["id"], state="cancelled", url="")
             if job["id"] == self.active_id and self.active_task:
                 self.active_task.cancel()
@@ -262,9 +277,60 @@ class Bot:
             from .source import drive_id
             drive_id(url)
             name = clean_name(fields[1]) if len(fields) > 1 else ""
-            job = self.store.add(update["update_id"], owner, chat, url, name)
+            job = self.store.add(update["update_id"], owner, chat, url, name, backend=self.s.transfer_backend)
+            if not job["message_id"]:
+                self.store.change(job['id'],phase='creating_message')
+                sent = await self.notify(chat, job["id"] + " — Đang chờ runner\nTiến độ: 0%\nTin nhắn này sẽ cập nhật mỗi 15 giây khi bắt đầu chuyển.")
+                if not sent or not isinstance(sent.get("message_id"), int):
+                    raise SourceError("Chưa tạo được tin nhắn tiến độ; tác vụ đang chờ kết nối Telegram.")
+                self.store.change(job["id"], message_id=sent["message_id"])
+                self.store.change(job['id'],phase='queued')
             self.job_event.set()
-            await self.notify(chat, "Đã nhận " + job["id"] + ". Xem /status " + job["id"])
+
+    async def actions_job(self, job):
+        try:
+            if not job["message_id"]:
+                sent = await self.telegram.send(job["chat"], job["id"] + " — Đang chờ GitHub Actions\nTiến độ: 0%")
+                self.store.change(job["id"], message_id=sent["message_id"])
+                job = self.store.get(job["id"], job["owner"])
+            if not job["dispatch_at"]:
+                # Persist BEFORE the request. Restart or ambiguous HTTP response must not duplicate uploads.
+                self.store.change(job["id"], dispatch_at=time.time(), phase="dispatching")
+                try:
+                    response = await self.actions.dispatch(job)
+                    if response.get("workflow_run_id"):
+                        self.store.change(job["id"], run_id=response["workflow_run_id"])
+                except (asyncio.TimeoutError, aiohttp.ClientError):
+                    pass  # Reconcile by unique run-name; never repeat POST automatically.
+                self.store.change(job["id"], url="", phase="queued")
+            result = await self.actions.observe(self.store.get(job["id"], job["owner"]), self.store)
+            if not result:
+                return
+            if result['state'] == 'done':
+                record = result['record']
+                self.retention.validate_record({**record, 'etag': record.get('etag') or 'pending'}, job['id'])
+                if record['owner'] != job['owner'] or record['chat'] != job['chat']:
+                    raise SourceError('Kết quả Actions không khớp owner.')
+                self.store.change(job['id'], state='done',url='',bytes=record['size'],total=record['size'],
+                    destination=record['destination'],completed=record['completed'],expires=record['expires'],
+                    file_id=record['file_id'],etag=record['etag'],retention='armed' if record['etag'] else 'pending',
+                    manifest=int(bool(result.get('manifest'))),cleanup_error=result.get('cleanup_error',''),phase='completed')
+                if not result.get('links_notified'):
+                    try:
+                        item = await self.retention.arm(self.store.get(job['id'], job['owner']))
+                        if item:
+                            await self.notify(job['chat'], '✅ Copy hoàn tất!\n' + link_message(self.store.get(job['id'],job['owner']), item))
+                    except Exception:
+                        await self.notify(job['chat'], '✅ ' + job['id'] + ' — Đã upload. Dùng /link ' + job['id'] + ' để lấy link.')
+            else:
+                self.store.change(job['id'],state=result['state'],url='',error=result.get('error','Workflow thất bại.'),phase='completed')
+                await self.telegram.edit(job['chat'],job['message_id'],describe(self.store.get(job['id'],job['owner'])))
+        except asyncio.CancelledError:
+            raise  # The runner keeps going after a controller restart.
+        except Exception as e:
+            error = str(e) if isinstance(e, SourceError) else 'Không đọc được kết quả Actions; kiểm tra workflow và thư mục đích.'
+            self.store.change(job['id'],state='failed',url='',error=error)
+            await self.notify(job['chat'],job['id'] + ' — ' + error)
 
     async def worker(self):
         while True:
@@ -281,10 +347,24 @@ class Bot:
                     pass
                 continue
             self.active_id = job["id"]
+            if job["backend"] == "actions":
+                try:
+                    await self.actions_job(job)
+                finally:
+                    self.active_id = None
+                continue
+            reporter = Progress(self.telegram,job['chat'],job['message_id'],job['id']) if job['message_id'] else None
+            if reporter:
+                await reporter.start()
+            else:
+                await self.notify(job['chat'],job['id'] + ' — Đang chuyển\nTiến độ: 0%')
             async def progress(count, total, dest):
                 self.store.change(job["id"], bytes=count, total=total, destination=dest)
-            await self.notify(job["chat"], "Đang chuyển " + job["id"] + ". Dùng /status để xem tiến độ.")
+                if reporter:
+                    await reporter.update(count,total,dest)
             if self.store.get(job["id"], job["owner"])["state"] == "cancelled":
+                if reporter:
+                    await reporter.close(job['id'] + ' — Đã hủy')
                 self.active_id = None
                 continue
             self.active_task = asyncio.create_task(self.transfer.copy(job, progress))
@@ -319,6 +399,9 @@ class Bot:
             finally:
                 self.active_task = None
                 self.active_id = None
+                if reporter:
+                    current = self.store.get(job['id'],job['owner'])
+                    await reporter.close(finished=True) if current['state']=='done' else await reporter.close(describe(current))
             current = self.store.get(job["id"], job["owner"])
             await self.notify(job["chat"], describe(current))
             if item:

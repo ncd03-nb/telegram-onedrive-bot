@@ -23,6 +23,8 @@ class Store:
             "etag": "TEXT DEFAULT ''", "file_url": "TEXT DEFAULT ''",
             "retention": "TEXT DEFAULT ''", "cleanup_error": "TEXT DEFAULT ''",
             "manifest": "INTEGER DEFAULT 0", "links_error": "TEXT DEFAULT ''",
+            "backend": "TEXT DEFAULT 'local'", "message_id": "INTEGER",
+            "run_id": "INTEGER", "dispatch_at": "REAL", "phase": "TEXT DEFAULT ''",
         }.items():
             if name not in columns:
                 self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
@@ -32,8 +34,9 @@ class Store:
 
     def recover(self):
         with self.db:
-            self.db.execute("UPDATE jobs SET state='interrupted', url='', error='Host đã khởi động lại. Kiểm tra thư mục đích trước khi gửi lại link.' WHERE state='running'")
+            self.db.execute("UPDATE jobs SET state='interrupted', url='', error='Host đã khởi động lại. Kiểm tra thư mục đích trước khi gửi lại link.' WHERE state='running' AND backend!='actions'")
             self.db.execute("UPDATE updates SET state='pending' WHERE state='running'")
+            self.db.execute("UPDATE jobs SET phase='' WHERE phase='creating_message' AND state='queued'")
 
     def ingest(self, update):
         with self.db:
@@ -52,7 +55,7 @@ class Store:
             # Retain ID for retry deduplication, discard signed URLs and message content.
             self.db.execute("UPDATE updates SET state='done',payload='' WHERE id=?", (update_id,))
 
-    def add(self, update_id, owner, chat, url, requested_name=""):
+    def add(self, update_id, owner, chat, url, requested_name="", backend="local"):
         row = self.db.execute("SELECT * FROM jobs WHERE update_id=?", (update_id,)).fetchone()
         if row:
             return row
@@ -62,19 +65,23 @@ class Store:
             raise ValueError("Hàng đợi đã đầy, thử lại sau.")
         job_id = uuid.uuid4().hex[:12]
         with self.db:
-            self.db.execute("INSERT INTO jobs(id,update_id,owner,chat,url,requested_name,state,created) VALUES(?,?,?,?,?,?,'queued',?)",
-                            (job_id, update_id, owner, chat, url, requested_name, time.time()))
+            self.db.execute("INSERT INTO jobs(id,update_id,owner,chat,url,requested_name,state,created,backend) VALUES(?,?,?,?,?,?,'queued',?,?)",
+                            (job_id, update_id, owner, chat, url, requested_name, time.time(), backend))
         return self.get(job_id, owner)
 
     def claim(self):
-        row = self.db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+        existing = self.db.execute("SELECT * FROM jobs WHERE state='running' AND backend='actions' ORDER BY created LIMIT 1").fetchone()
+        if existing:
+            return dict(existing)
+        row = self.db.execute("SELECT * FROM jobs WHERE state='queued' AND phase!='creating_message' ORDER BY created LIMIT 1").fetchone()
         if row:
             self.change(row["id"], state="running")
             return dict(self.db.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone())
 
     def change(self, job_id, **fields):
         if not set(fields).issubset({"state", "bytes", "total", "destination", "error", "url",
-                "completed", "expires", "file_id", "etag", "file_url", "retention", "cleanup_error", "manifest", "links_error"}):
+                "completed", "expires", "file_id", "etag", "file_url", "retention", "cleanup_error", "manifest", "links_error",
+                "backend", "message_id", "run_id", "dispatch_at", "phase"}):
             raise ValueError("Invalid job fields")
         with self.db:
             self.db.execute("UPDATE jobs SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?", (*fields.values(), job_id))
@@ -99,6 +106,9 @@ class Store:
             self.db.execute("INSERT OR IGNORE INTO jobs(id,owner,chat,url,requested_name,state,bytes,total,destination,created,completed,expires,file_id,etag,retention,manifest) VALUES(?,?,?,'','','done',?,?,?,?,?,?,?,?,'armed',1)",
                 (record["id"], record["owner"], record["chat"], record["size"], record["size"], record["destination"],
                  record["completed"], record["completed"], record["expires"], record["file_id"], record["etag"]))
+            # A runner can finish while the controller is offline. Preserve the original TTL.
+            self.db.execute("UPDATE jobs SET state='done',url='',bytes=?,total=?,destination=?,completed=?,expires=?,file_id=?,etag=?,retention='armed',manifest=1 WHERE id=? AND owner=? AND backend='actions' AND state IN ('queued','running','interrupted')",
+                (record['size'],record['size'],record['destination'],record['completed'],record['expires'],record['file_id'],record['etag'],record['id'],record['owner']))
 
     def clean(self):
         with self.db:

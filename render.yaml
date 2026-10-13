@@ -8,6 +8,12 @@ services:
     envVars:
       - key: BOT_MODE
         value: standby
+      - key: TRANSFER_BACKEND
+        value: actions
+      - key: ACTIONS_REPO
+        value: ncd03-nb/telegram-onedrive-bot
+      - key: ACTIONS_REF
+        value: main
       - key: PORT
         value: 8080
       - key: DATA_DIR

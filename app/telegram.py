@@ -34,3 +34,7 @@ class Telegram:
     async def send(self, chat, text):
         return await self.call("sendMessage", chat_id=chat, text=text[:4000],
             link_preview_options={"is_disabled": True})
+
+    async def edit(self, chat, message_id, text):
+        return await self.call("editMessageText", chat_id=chat, message_id=message_id,
+            text=text[:4000], link_preview_options={"is_disabled": True})

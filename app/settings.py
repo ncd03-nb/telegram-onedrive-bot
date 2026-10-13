@@ -25,6 +25,10 @@ class Settings:
     rclone: str = "rclone"
     retention_hours: int = 12
     cleanup_interval: int = 60
+    transfer_backend: str = "local"
+    github_token: str = ""
+    github_repo: str = "ncd03-nb/telegram-onedrive-bot"
+    github_ref: str = "main"
 
     @classmethod
     def load(cls):
@@ -46,7 +50,17 @@ class Settings:
                 webhook_secret=os.environ.get("WEBHOOK_SECRET", ""),
                 rclone=os.environ.get("RCLONE_BINARY", "rclone"),
                 retention_hours=int(os.environ.get("RETENTION_HOURS", "12")),
-                cleanup_interval=int(os.environ.get("CLEANUP_INTERVAL_SECONDS", "60")))
+                cleanup_interval=int(os.environ.get("CLEANUP_INTERVAL_SECONDS", "60")),
+                transfer_backend=os.environ.get("TRANSFER_BACKEND", "local"),
+                github_token=os.environ.get("ACTIONS_DISPATCH_TOKEN", ""),
+                github_repo=os.environ.get("ACTIONS_REPO", "ncd03-nb/telegram-onedrive-bot"),
+                github_ref=os.environ.get("ACTIONS_REF", "main"))
+        if s.transfer_backend not in {"local", "actions"}:
+            raise ValueError("TRANSFER_BACKEND phải là local hoặc actions.")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", s.github_repo):
+            raise ValueError("ACTIONS_REPO không hợp lệ.")
+        if s.transfer_backend == "actions" and s.mode != "standby" and not s.github_token:
+            raise ValueError("Cần ACTIONS_DISPATCH_TOKEN để chạy GitHub Actions.")
         if s.mode not in {"polling", "webhook", "standby"}:
             raise ValueError("BOT_MODE phải là polling, webhook hoặc standby.")
         if s.max_bytes <= 0 or s.spool_bytes < 0 or s.transfer_timeout <= 0 or s.retention_hours <= 0 or s.cleanup_interval < 10:

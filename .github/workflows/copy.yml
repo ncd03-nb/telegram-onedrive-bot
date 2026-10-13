@@ -1,0 +1,79 @@
+name: Copy cloud file to OneDrive
+run-name: copy-${{ inputs.job_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        required: true
+        type: string
+      source_url:
+        required: true
+        type: string
+      requested_name:
+        default: ''
+        type: string
+      owner:
+        required: true
+        type: string
+      chat:
+        required: true
+        type: string
+      message_id:
+        required: true
+        type: string
+      max_file_gib:
+        default: '12'
+        type: string
+      retention_hours:
+        default: '12'
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: onedrive-copy-${{ inputs.job_id }}
+  cancel-in-progress: false
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build transfer container
+        run: docker build -t onedrive-worker .
+      - name: Prepare private runner volumes
+        run: |
+          mkdir -p "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
+          sudo chown -R 10001:10001 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
+          sudo chmod 700 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data"
+      - name: Download and upload with 15-second Telegram progress
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_SOURCE_URL: ${{ inputs.source_url }}
+          JOB_REQUESTED_NAME: ${{ inputs.requested_name }}
+          JOB_OWNER: ${{ inputs.owner }}
+          JOB_CHAT: ${{ inputs.chat }}
+          JOB_MESSAGE_ID: ${{ inputs.message_id }}
+          MAX_FILE_GIB: ${{ inputs.max_file_gib }}
+          RETENTION_HOURS: ${{ inputs.retention_hours }}
+        run: |
+          docker run --rm --init --name onedrive-worker --stop-timeout 25 \
+            -v "$RUNNER_TEMP/od-config:/config" -v "$RUNNER_TEMP/od-data:/data" \
+            -v "$RUNNER_TEMP/od-result:/result" \
+            -e TELEGRAM_BOT_TOKEN -e ALLOWED_USER_IDS -e RCLONE_CONFIG_B64 -e GOOGLE_TOKEN_B64 \
+            -e JOB_ID -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
+            -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
+            -e RESULT_PATH=/result/result.json onedrive-worker python -m app.action_runner
+      - name: Store small result for controller recovery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/od-result/result.json
+          if-no-files-found: ignore
+          retention-days: 2
