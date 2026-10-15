@@ -6,6 +6,8 @@ Bot dùng **một tin tiến độ riêng** và cập nhật nó trong suốt t�
 
 File được truyền từ nguồn tới OneDrive qua rclone; không cần chờ Internet Archive nhập file. Runner xác minh dung lượng đích và MD5 nguồn nếu có trước khi báo hoàn thành.
 
+Actions dùng **HTTP/1.1**, gói upload 50 MiB và bộ đệm tải trước **64 MiB**. Bài đo 512 MiB trên cùng runner đạt **10,94 MiB/s**, so với **4,15 MiB/s** bằng HTTP/2; checksum đích khớp. Đây là số đo có kiểm soát, tốc độ file thực tế còn phụ thuộc nguồn và OneDrive. Xem [kết quả đo](docs/onedrive-performance.md). Có thể tắt bộ đệm bằng `SOURCE_PREFETCH_MIB=0` hoặc khôi phục HTTP/2 bằng `ONEDRIVE_DISABLE_HTTP2=false`.
+
 File tự xóa sau **12 giờ từ lúc hoàn tất**. Cloudflare kiểm tra ID/eTag trước khi xóa, tránh xóa file đã bị thay thế. Index Link hết hiệu lực khi hết hạn. Các lượt thử Archive cũ vẫn giữ lịch dọn riêng.
 
 ## Lệnh
