@@ -1,5 +1,5 @@
 import {credential,BotError,now,id,seal,unseal,bytes64,limited,telegram,send,edit,github,findRun,workflow,artifact,source,cleanName,Graph,indexURL} from './services.mjs';
-const odHelp='/copy <link> [tên file]\n/status [mã]\n/cancel <mã>\n/find <từ khóa>\n/link <mã> — Index Link và tải trực tiếp\n/dl <mã>\n/check — quota OneDrive\nFile mới upload lên Internet Archive là công khai, đặt lịch xóa sau 12 giờ.';
+const odHelp='/copy <link> [tên file]\n/status [mã]\n/cancel <mã>\n/find <từ khóa>\n/link <mã> — Index Link và tải trực tiếp\n/dl <mã>\n/check — quota OneDrive\nFile mới upload lên OneDrive, tự xóa sau 12 giờ.';
 const payloadHelp='/list <link ZIP OTA hoặc payload.bin>\n/extract <link hoặc mã ROM> boot,init_boot,vbmeta\n/extract <mã ROM> all\n/status [mã]\n/cancel <mã>\n/files <mã>\nNhiều phân vùng được gộp thành một ZIP. Chỉ nhận lệnh / trong chat riêng hoặc group, không cần tag bot.';
 const terminal=new Set(['done','failed','cancelled','deleted','interrupted']);
 export class Controller {
