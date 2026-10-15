@@ -2,7 +2,7 @@
 
 Bot [@odrivegay_bot](https://t.me/odrivegay_bot) nhận link Google Drive, Dropbox hoặc HTTP(S), dùng GitHub Actions tải và upload vào OneDrive Microsoft 365 Education. **Controller chạy hoàn toàn trên Cloudflare**; Docker trên máy và Render đã dừng.
 
-Runner sửa cùng một tin nhắn tiến độ khoảng **2 giây/lần khi có thay đổi**, hiển thị %, dung lượng, tốc độ và thời gian. Khi đứng ở một bước, tin nhắn có heartbeat khoảng 10 giây; bot tôn trọng `retry_after` của Telegram. Sau khi hoàn tất, bot gửi tên file và hai nút **Index Link / tải trực tiếp**.
+Mỗi yêu cầu chỉ có **một tin nhắn trả lời**, được chỉnh sửa từ lúc chờ đến kết quả. Runner cập nhật khoảng **2 giây/lần khi có thay đổi**, hiển thị %, dung lượng, tốc độ và thời gian. Khi đứng ở một bước, tin nhắn có heartbeat khoảng 10 giây; bot tôn trọng `retry_after` của Telegram. Sau khi hoàn tất, chính tin đó hiện tên file và hai nút **Index Link / tải trực tiếp**.
 
 File do bot upload được đặt lịch xóa sau **12 giờ từ lúc hoàn tất**. Cloudflare lưu thời hạn và kiểm tra file ID/eTag trước khi chuyển file vào thùng rác; file đã được thay thế hoặc sửa sẽ được bảo vệ. Index Link chuyển hướng tới URL tải OneDrive mới, dữ liệu file đi trực tiếp từ OneDrive tới người tải.
 

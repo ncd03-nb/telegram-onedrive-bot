@@ -50,7 +50,7 @@ export class Controller {
   if(this.p.state().command_retry>now()){await this.schedule(this.p.state().command_retry-now());return;}
   for(const event of this.p.pending().slice(0,5)){
    try{
-    if(event.id.startsWith('u:'))await this.command(JSON.parse(event.payload));
+    if(event.id.startsWith('u:')){const update=JSON.parse(event.payload);if(update.callback_query)await this.page(update.callback_query);else await this.command(update);}
     else if(event.id.startsWith('r:')){const j=this.get(event.id.slice(2));if(j&&!terminal.has(j.state)){j.next_check=now();this.save(j);}}
     this.sql.exec("UPDATE events SET done=1,payload='' WHERE id=?",event.id);
    }catch(error){
@@ -163,7 +163,7 @@ export class Controller {
    }
   }
   j.state=result.state;j.phase='completed';j.url='';j.completed=j.completed||now();j.error=result.error||'';
-  j.notification_needed=j.kind==='scan'||(j.bot==='payload'?!result.notified:!result.links_notified);this.save(j);
+  j.notification_needed=true;this.save(j);
   if(j.notification_needed){try{await this.finishNotify(j);}catch(error){j.notify_retry=now()+(error.retry||15);this.save(j);}}return {accepted:true};
  }
  validateRecord(r,j){
@@ -171,16 +171,33 @@ export class Controller {
   if(r?.version!==1||r.id!==j.id||r.owner!==j.owner||r.chat!==j.chat||!r.destination?.startsWith(prefix)||!name||/[\/\\]/.test(name)||name.startsWith('.')||!Number.isSafeInteger(r.size)||r.size<0||!r.file_id||!Number.isFinite(r.completed)||!Number.isFinite(r.expires)||r.expires<=r.completed||r.expires-r.completed>13*3600)throw new BotError('Danh tính file không khớp tác vụ.');
  }
  async finishNotify(j){
-  if(j.scan_notification){const scan=j.scan_notification;await send(this.config(),this.message(j),'📦 ROM '+j.id+' — '+scan.metadata.length+' phân vùng\n📱 '+(scan.rom_version||'Không xác định')+'\n/extract '+j.id+' boot,init_boot,vbmeta\nMã ROM có hiệu lực 24 giờ.');
-   const text=scan.metadata.map(p=>p.name+' — '+(p.size/1024**2).toFixed(1)+' MiB'+(p.supported?'':' [delta]')).join('\n');for(let start=0;start<text.length;start+=3800)await send(this.config(),this.message(j),text.slice(start,start+3800));delete j.scan_notification;
+  if(j.scan_notification){const scan=j.scan_notification;
+   await this.present(j,'📦 ROM '+j.id+' — '+scan.metadata.length+' phân vùng\n📱 '+(scan.rom_version||'Không xác định')+'\n/extract '+j.id+' boot,init_boot,vbmeta\nMã ROM có hiệu lực 24 giờ.',scan.metadata.map(p=>p.name+' — '+(p.size/1024**2).toFixed(1)+' MiB'+(p.supported?'':' [delta]')));delete j.scan_notification;
   }else if(j.state!=='done')await edit(this.config(),j,'❌ '+this.describe(j));
-  else if(j.bot==='payload')for(const file of j.files||[])await this.file(file,this.message(j));
-  else await this.links(j,this.message(j));j.notification_needed=false;this.save(j);
+  else if(j.bot==='payload')for(const file of j.files||[])await this.file(file,this.message(j),j);
+  else await this.links(j,this.message(j),false,true);j.notification_needed=false;this.save(j);
  }
- async file(file,m){
+ async present(j,heading,lines=[],markup){
+  const pages=[];let text=heading.slice(0,1000)+'\n';
+  for(const line of lines){const row=line.slice(0,2000);if(text.length+row.length+1>3800){pages.push(text.trimEnd());text=heading.slice(0,1000)+'\n';}text+='\n'+row;}
+  pages.push(text.trimEnd());j.response_pages=pages;j.response_markup=markup||{inline_keyboard:[]};this.save(j);await this.renderPage(j,0);
+ }
+ async renderPage(j,page){
+  const pages=j.response_pages,buttons=[...(j.response_markup?.inline_keyboard||[])];
+  if(pages.length>1){const nav=[];if(page>0)nav.push({text:'‹ Trước',callback_data:'page:'+j.id+':'+(page-1)});if(page+1<pages.length)nav.push({text:'Sau ›',callback_data:'page:'+j.id+':'+(page+1)});buttons.push(nav);}
+  await edit(this.config(),j,pages[page]+(pages.length>1?'\n\nTrang '+(page+1)+'/'+pages.length:''),{inline_keyboard:buttons});
+ }
+ async page(q){
+  const [,jid,value]=q.data.split(':'),j=this.get(jid,q.from.id),page=Number(value);
+  if(!j||j.chat!==q.message.chat.id||j.message_id!==q.message.message_id||!j.response_pages||page>=j.response_pages.length||j.kind==='scan'&&j.completed<now()-86400){await telegram(this.config(),'answerCallbackQuery',{callback_query_id:q.id,text:'Danh sách đã hết hạn hoặc không thuộc yêu cầu của bạn.'});return;}
+  await this.renderPage(j,page);await telegram(this.config(),'answerCallbackQuery',{callback_query_id:q.id});
+ }
+ async file(file,m,target){
   const url=new URL(file.url);if(url.protocol!=='https:')throw new BotError('Link Drive không hợp lệ.');
   const zip=file.name.endsWith('.zip');const detail=file.members?'\n📦 '+file.members.length+' phân vùng\n'+file.members.map(v=>v.name).join(', '):'\n📦 '+file.name;
-  await send(this.config(),m,'✅ Hoàn thành\n📱 ROM: '+(file.rom_version||'Không xác định')+'\n📄 '+file.name+'\n💾 '+(file.size/1024**2).toFixed(2)+' MiB'+detail,{inline_keyboard:[[{text:zip?'⬇ Tải ZIP từ Drive':'⬇ Tải .img từ Drive',url:file.url}]]});
+  const heading='✅ Hoàn thành\n📱 ROM: '+(file.rom_version||'Không xác định')+'\n📄 '+file.name+'\n💾 '+(file.size/1024**2).toFixed(2)+' MiB',markup={inline_keyboard:[[{text:zip?'⬇ Tải ZIP từ Drive':'⬇ Tải .img từ Drive',url:file.url}]]};
+  if(target)await this.present(target,heading,file.members?['📦 '+file.members.length+' phân vùng',...file.members.map(v=>v.name)]:['📦 '+file.name],markup);
+  else await send(this.config(),m,heading+detail,markup);
  }
  async arm(j,item){
   if(item.status===404||!item.file||item.size!==j.total||j.file_id&&item.id!==j.file_id||j.etag&&item.eTag!==j.etag)throw new BotError('File đã thay đổi; không đặt lại lịch xóa.');
@@ -188,13 +205,14 @@ export class Controller {
   const record={version:1,id:j.id,owner:j.owner,chat:j.chat,destination:j.destination,size:j.total,completed:j.completed,expires:j.expires,file_id:j.file_id,etag:j.etag,...(j.link_ctag?{link_ctag:j.link_ctag}:{})};
   await new Graph(this.config(),this.ctx.storage).manifest(j.destination,record);j.manifest=1;this.save(j);
  }
- async links(j,m,directOnly=false){
+ async links(j,m,directOnly=false,inPlace=false){
   if(!j.expires||j.expires<=now())throw new BotError('File đã hết hạn 12 giờ.');const graph=new Graph(this.config(),this.ctx.storage);const item=await graph.item(j.destination);
   if(item.status===404||!item.file||item.id!==j.file_id||item.size!==j.total||j.link_ctag&&item.cTag!==j.link_ctag)throw new BotError('File đã bị xóa, thay thế hoặc sửa nội dung.');
   if(!j.manifest||!j.link_ctag){if(!item.cTag&&item.eTag!==j.etag)throw new BotError('Chưa xác minh được nội dung file.');j.link_ctag=item.cTag||'';await this.arm(j,{...item,eTag:j.etag||item.eTag});}
   const direct=item['@microsoft.graph.downloadUrl'];if(!direct?.startsWith('https://'))throw new BotError('OneDrive chưa trả link tải.',30);
   const buttons=[];if(!directOnly)buttons.push({text:'⚡ Index Link',url:await indexURL(this.config(),j,this.origin())});buttons.push({text:'⬇ Tải trực tiếp',url:direct});
-  await send(this.config(),m,'✅ Hoàn thành\n📄 '+item.name,{inline_keyboard:[buttons]});
+  const text='✅ Hoàn thành\n📄 '+item.name,markup={inline_keyboard:[buttons]};
+  if(inPlace)await edit(this.config(),j,text,markup);else await send(this.config(),m,text,markup);
  }
  async cleanup(j){
   const graph=new Graph(this.config(),this.ctx.storage);const item=await graph.item(j.destination);

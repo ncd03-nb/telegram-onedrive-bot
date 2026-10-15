@@ -62,7 +62,7 @@ async def run():
         notified = False
         if item:
             try:
-                await telegram.send(chat, link_message(current, item, settings=s),
+                await telegram.edit(chat, message_id, link_message(current, item, settings=s),
                     reply_markup=link_keyboard(s, current, item))
                 notified = True
             except Exception:
@@ -78,10 +78,6 @@ async def run():
         error = str(e) if isinstance(e, SourceError) else ('Nguồn hoặc upload quá thời gian; kiểm tra mạng / quota rồi thử lại.' if isinstance(e, TimeoutError) else 'Lỗi nguồn / upload; kiểm tra quyền và quota.')
         result = {'id': job_id, 'state': 'failed', 'error': error}
         await progress.close(f"{job_id} — Thất bại\n{error}")
-        try:
-            await telegram.send(chat, f'❌ {job_id} — {error}')
-        except Exception:
-            pass
     finally:
         output = Path(os.environ.get('RESULT_PATH', 'result.json'))
         output.parent.mkdir(parents=True, exist_ok=True)

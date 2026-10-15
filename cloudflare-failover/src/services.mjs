@@ -38,7 +38,7 @@ export const send=(c,m,text,markup)=>telegram(c,'sendMessage',{chat_id:m.chat?.i
  link_preview_options:{is_disabled:true},...(markup?{reply_markup:markup}:{}),
  ...(m.message_id?{reply_parameters:{message_id:m.message_id,allow_sending_without_reply:true}}:{}),
  ...(m.message_thread_id?{message_thread_id:m.message_thread_id}:{})});
-export const edit=(c,job,text)=>telegram(c,'editMessageText',{chat_id:job.chat,message_id:job.message_id,text:text.slice(0,4000),link_preview_options:{is_disabled:true}});
+export const edit=(c,job,text,markup)=>telegram(c,'editMessageText',{chat_id:job.chat,message_id:job.message_id,text:text.slice(0,4000),link_preview_options:{is_disabled:true},reply_markup:markup||{inline_keyboard:[]}});
 export async function github(c,method,path,body){
  const response=await fetch('https://api.github.com/repos/'+c.repo+path,{method,redirect:'manual',headers:{'Authorization':'Bearer '+c.github,'User-Agent':'TelegramCloudController/1.0','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28',...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});
  if(![200,201,202,204,302].includes(response.status))throw new BotError('GitHub Actions HTTP '+response.status+'.',response.status===429?60:0);

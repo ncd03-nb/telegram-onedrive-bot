@@ -6,6 +6,8 @@ Cloudflare handles commands, ownership checks, job state, Actions dispatch and r
 
 Actions update the existing Telegram progress message approximately every two seconds when progress changes, with a ten-second heartbeat during unchanged progress. Telegram's `retry_after` is respected. Completed multi-partition jobs produce one ZIP, one result message, ROM version and member names. Reply/topic identity is preserved.
 
+Each request keeps one bot reply: scan headers and partition lists replace the initial reading message, and upload results with download buttons replace the progress message. Long scan/result lists use owner-checked inline pagination on that same message. Webhooks accept `message` and `callback_query`; updates and completion callbacks remain deduplicated.
+
 The repositories may be public. Job inputs and result artifacts use AES-256-GCM with a fresh 12-byte nonce and task ID as authenticated associated data. The key is derived from the bot token with a separate HMAC purpose. Public logs and artifacts expose the random job ID and status; source URLs, Telegram identities and download capabilities remain encrypted. Bot/OAuth/GitHub credentials remain in Cloudflare/GitHub secrets and ignored local config files.
 
 ## Migration

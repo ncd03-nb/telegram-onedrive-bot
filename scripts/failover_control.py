@@ -38,10 +38,10 @@ def main():
     if args.action in {'prepare','activate','audit'}:
         print(json.dumps(request(origin+'/api/'+args.bot+'/'+args.action,{},host_headers)));return
     if args.action=='set-webhook':
-        if not status['initialized'] or status['leader']!='docker':raise SystemExit('Refused cutover: Docker must first synchronize its existing state.')
+        if not status['initialized'] or status['leader'] not in {'docker','cloudflare'}:raise SystemExit('Refused cutover: a synchronized controller must be active.')
         response=request('https://api.telegram.org/bot'+token+'/setWebhook',{
             'url':origin+'/telegram/'+args.bot,'secret_token':key(token,'bot-failover-webhook-v1'),
-            'allowed_updates':['message'],'drop_pending_updates':False,'max_connections':2})
+            'allowed_updates':['message','callback_query'],'drop_pending_updates':False,'max_connections':2})
         if not response.get('ok'):raise SystemExit('Telegram webhook rejected')
         print('Permanent Cloudflare webhook configured:',args.bot)
     elif args.action=='probe':

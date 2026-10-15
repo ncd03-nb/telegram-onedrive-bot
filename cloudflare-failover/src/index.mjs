@@ -6,6 +6,13 @@ import {BotError} from './services.mjs';
 const reply=(obj,status=200)=>Response.json(obj,{status,headers:{'Cache-Control':'no-store'}});
 function bots(env){return JSON.parse(env.BOTS_CONFIG);}
 function accepts(update,config){
+  const q=update?.callback_query;
+  if(q){
+    const from=q.from,chat=q.message?.chat;
+    if(!Number.isSafeInteger(update.update_id)||!Number.isSafeInteger(from?.id)||from.id<=0||from.is_bot||typeof q.id!=='string'||!/^page:[a-f0-9]{12}:[0-9]{1,4}$/.test(q.data||'')||!Number.isSafeInteger(q.message?.message_id))return false;
+    if(!config.public&&!config.users.includes(from.id))return false;
+    return chat?.type==='private'?chat.id===from.id:config.groups&&['group','supergroup'].includes(chat?.type)&&chat.id<0;
+  }
   const m=update?.message,from=m?.from,chat=m?.chat;
   if(!Number.isSafeInteger(update?.update_id)||!m||!Number.isSafeInteger(from?.id)||from.id<=0||from.is_bot||typeof m.text!=='string')return false;
   if(!config.public && !config.users.includes(from.id))return false;
