@@ -1,5 +1,5 @@
 import {credential,BotError,now,id,seal,unseal,bytes64,limited,telegram,send,edit,github,findRun,workflow,artifact,source,cleanName,Graph,indexURL} from './services.mjs';
-const odHelp='/copy <link> [tên file]\n/status [mã]\n/cancel <mã>\n/find <từ khóa>\n/link <mã> — Index Link và tải trực tiếp\n/dl <mã>\n/check — quota OneDrive\nFile bot upload tự xóa sau 12 giờ.';
+const odHelp='/copy <link> [tên file]\n/status [mã]\n/cancel <mã>\n/find <từ khóa>\n/link <mã> — Index Link và tải trực tiếp\n/dl <mã>\n/check — quota OneDrive\nFile mới upload lên Internet Archive là công khai, đặt lịch xóa sau 12 giờ.';
 const payloadHelp='/list <link ZIP OTA hoặc payload.bin>\n/extract <link hoặc mã ROM> boot,init_boot,vbmeta\n/extract <mã ROM> all\n/status [mã]\n/cancel <mã>\n/files <mã>\nNhiều phân vùng được gộp thành một ZIP. Chỉ nhận lệnh / trong chat riêng hoặc group, không cần tag bot.';
 const terminal=new Set(['done','failed','cancelled','deleted','interrupted']);
 export class Controller {
@@ -65,7 +65,7 @@ export class Controller {
   for(const j of this.jobs("WHERE state IN ('done','failed') ORDER BY created LIMIT 2000"))if(j.notification_needed&&!(j.notify_retry>now())){try{await this.finishNotify(j);}catch(error){retry=error.retry||15;j.notify_retry=now()+retry;this.save(j);}}
   if(this.bot()==='onedrive')for(const j of this.jobs("WHERE state='done' ORDER BY created LIMIT 2000")){
    if(!['pending','armed'].includes(j.retention)||j.cleanup_retry>now()||j.expires>now()&&j.retention!=='pending')continue;
-   try{await this.cleanup(j);}catch(error){j.cleanup_retry=now()+(error.retry||300);j.cleanup_error='OneDrive chưa kết nối; lịch xóa sẽ được thử lại.';this.save(j);}
+   try{await this.cleanup(j);}catch(error){j.cleanup_retry=now()+(error.retry||300);j.cleanup_error=(j.storage==='archive'?'Archive':'OneDrive')+' chưa kết nối; lịch xóa sẽ được thử lại.';this.save(j);}
   }
   this.sql.exec('DELETE FROM cloud_scans WHERE created<?',now()-86400);
   this.sql.exec('DELETE FROM events WHERE done=1 AND created<?',Date.now()-7*86400000);
@@ -73,7 +73,7 @@ export class Controller {
   await this.schedule(retry);
  }
  message(j){return {chat:{id:j.chat},message_id:j.request_message_id,message_thread_id:j.thread_id};}
- describe(j){const label={queued:'Đang chờ runner',running:'Đang xử lý',done:'Hoàn thành',failed:'Thất bại',cancelled:'Đã hủy',deleted:'Đã xóa',interrupted:'Bị ngắt'}[j.state]||j.state;return j.id+' — '+label+(j.destination?'\n📄 '+j.destination.split('/').at(-1):'')+(j.phase?'\n'+j.phase:'')+(j.expires?'\nHạn lưu: '+new Date(j.expires*1000).toLocaleString('vi-VN',{timeZone:'Asia/Bangkok'}):'')+(j.error?'\n'+j.error:'');}
+ describe(j){const label={queued:'Đang chờ runner',running:'Đang xử lý',done:'Hoàn thành',failed:'Thất bại',cancelled:'Đã hủy',deleted:'Đã xóa',interrupted:'Bị ngắt'}[j.state]||j.state;return j.id+' — '+(j.storage==='archive'&&j.state==='done'&&j.notification_needed?'Đang chờ link Archive':label)+(j.destination?'\n📄 '+j.destination.split('/').at(-1):'')+(j.phase?'\n'+j.phase:'')+(j.expires?'\nHạn lưu: '+new Date(j.expires*1000).toLocaleString('vi-VN',{timeZone:'Asia/Bangkok'}):'')+(j.error?'\n'+j.error:'');}
  async command(update){
   const m=update.message,owner=m.from.id,c=this.config(),text=m.text.trim().replace('https\\://','https://');
   const space=text.search(/\s/),head=(space<0?text:text.slice(0,space)).split('@')[0].toLowerCase(),args=space<0?'':text.slice(space).trim();
@@ -98,6 +98,7 @@ export class Controller {
    j.state='cancelled';j.url='';this.save(j);await send(c,m,'Đã yêu cầu hủy '+j.id+'.');return;
   }
   if(head==='/check'&&this.bot()==='onedrive'){
+   if(c.storage_backend==='archive'){await send(c,m,'Nơi lưu hiện tại: Internet Archive\nUpload multipart 8 luồng, file công khai.\nFile mới được đặt lịch xóa sau 12 giờ; Archive xử lý xóa bất đồng bộ.');return;}
    const drive=new Graph(c,this.ctx.storage);const obj=await drive.request('GET',drive.drive());await send(c,m,'OneDrive kết nối được.\nCòn trống: '+((obj.quota?.remaining||0)/1024**3).toFixed(2)+' GiB');return;
   }
   let kind=this.bot()==='onedrive'?'copy':'extract',url='',requested='';
@@ -117,7 +118,7 @@ export class Controller {
   let j=this.jobs('WHERE update_id=?',[update.update_id])[0];
   if(!j){
    const count=this.sql.exec("SELECT COUNT(*) AS count FROM cloud_jobs WHERE owner=? AND state IN ('queued','running')",owner).one().count;if(count>=3)throw new BotError('Mỗi người tối đa 3 tác vụ đang chờ/chạy.');
-   j={id:id(),bot:this.bot(),kind,update_id:update.update_id,owner,chat:m.chat.id,url,requested_name:requested,partitions:requested,state:'queued',created:now(),thread_id:m.message_thread_id||0,request_message_id:m.message_id||0};this.save(j);
+   j={id:id(),bot:this.bot(),kind,storage:this.bot()==='onedrive'?(c.storage_backend||'onedrive'):undefined,update_id:update.update_id,owner,chat:m.chat.id,url,requested_name:requested,partitions:requested,state:'queued',created:now(),thread_id:m.message_thread_id||0,request_message_id:m.message_id||0};this.save(j);
   }
   if(!j.message_id){const sent=await send(c,{...m,message_id:0},(kind==='scan'?'🔎 Đang đọc danh sách phân vùng…':'⏳ '+j.id+' — Đang chờ GitHub Actions\nTiến độ: 0%'));j.message_id=sent.message_id;this.save(j);}
  }
@@ -159,6 +160,11 @@ export class Controller {
     if(!Array.isArray(result.files)||result.files.length>1)throw new BotError('Kết quả file không hợp lệ.');j.files=result.files;
    }else{
     const record=result.record;this.validateRecord(record,j);
+    if(j.storage==='archive'){
+     const a=result.archive;
+     if(!a||!new RegExp('^odrivegay-'+j.id+'-[a-f0-9]{16}$').test(a.identifier)||a.identifier!==record.file_id||a.name!==record.destination.split('/').at(-1)||!/^[a-f0-9]{32}$/.test(a.md5)||!/^[a-f0-9]{64}$/.test(a.sha256)||a.md5!==record.etag||a.sha256!==record.link_ctag)throw new BotError('Danh tính Archive không khớp.');
+     const expected='/download/'+a.identifier+'/'+a.name,parsed=new URL(a.url);if(parsed.origin!=='https://archive.org'||parsed.search||parsed.hash||decodeURIComponent(parsed.pathname)!==expected)throw new BotError('Link Archive không khớp.');j.archive=a;
+    }
     Object.assign(j,{destination:record.destination,total:record.size,bytes:record.size,completed:record.completed,expires:record.expires,file_id:record.file_id,etag:record.etag,link_ctag:record.link_ctag||'',retention:record.etag?'armed':'pending',manifest:Number(Boolean(result.manifest))});
    }
   }
@@ -208,6 +214,12 @@ export class Controller {
   await new Graph(this.config(),this.ctx.storage).manifest(j.destination,record);j.manifest=1;this.save(j);
  }
  async links(j,m,directOnly=false,inPlace=false){
+  if(j.storage==='archive'){
+   if(j.expires<=now())throw new BotError('File đã hết hạn 12 giờ.');await this.archiveItem(j);await this.archiveReady(j);
+   const buttons=[];if(!directOnly)buttons.push({text:'⚡ Index Link',url:await indexURL(this.config(),j,this.origin())});buttons.push({text:'⬇ Tải trực tiếp',url:j.archive.url});
+   const text='✅ Hoàn thành\n📄 '+j.archive.name,markup={inline_keyboard:[buttons]};
+   if(inPlace)await this.present(j,text,[],markup);else await send(this.config(),m,text,markup);return;
+  }
   if(!j.expires||j.expires<=now())throw new BotError('File đã hết hạn 12 giờ.');const graph=new Graph(this.config(),this.ctx.storage);const item=await graph.item(j.destination);
   if(item.status===404||!item.file||item.id!==j.file_id||item.size!==j.total||j.link_ctag&&item.cTag!==j.link_ctag)throw new BotError('File đã bị xóa, thay thế hoặc sửa nội dung.');
   if(!j.manifest||!j.link_ctag){if(!item.cTag&&item.eTag!==j.etag)throw new BotError('Chưa xác minh được nội dung file.');j.link_ctag=item.cTag||'';await this.arm(j,{...item,eTag:j.etag||item.eTag});}
@@ -217,6 +229,7 @@ export class Controller {
   if(inPlace)await this.present(j,text,[],markup);else await send(this.config(),m,text,markup);
  }
  async cleanup(j){
+  if(j.storage==='archive'){await this.archiveCleanup(j);return;}
   const graph=new Graph(this.config(),this.ctx.storage);const item=await graph.item(j.destination);
   if(item.status===404){j.state='deleted';j.retention='missing';this.save(j);return;}
   if(j.retention==='pending'){await this.arm(j,item);if(j.expires>now())return;}
@@ -234,9 +247,41 @@ export class Controller {
   const [,jid,expiry,tag]=match;if(Number(expiry)<=now())return fail('Link đã hết hạn 12 giờ.',410);
   const j=this.get(jid);if(!j||j.state!=='done'||Math.floor(j.expires)!==Number(expiry)||j.destination.split('/').at(-1)!==name)return fail('File không còn khả dụng.',410);
   const expected=await indexURL(this.config(),tag?j:{...j,link_ctag:''},this.origin());const part=new URL(expected).pathname.split('/')[2];if(part!==capability)return fail('Link không hợp lệ.',404);
+  if(j.storage==='archive'){try{await this.archiveItem(j);return new Response(null,{status:302,headers:{...headers,Location:j.archive.url}});}catch{return fail('Archive đang xử lý hoặc file đã bị thay đổi. Hãy thử lại.',503);}}
   try{const item=await new Graph(this.config(),this.ctx.storage).item(j.destination);
    if(item.status===404||item.id!==j.file_id||item.size!==j.total||(tag?item.cTag!==j.link_ctag:item.eTag!==j.etag))return fail('File đã thay đổi hoặc bị thay thế.',410);
    const direct=item['@microsoft.graph.downloadUrl'];if(!direct?.startsWith('https://'))return fail('OneDrive chưa có link tải.',503);return new Response(null,{status:302,headers:{...headers,Location:direct}});
   }catch{return fail('Chưa lấy được link OneDrive, hãy thử lại.',503);}
+ }
+ async archiveItem(j,allowMissing=false){
+  if(!j.archive||!new RegExp('^odrivegay-'+j.id+'-[a-f0-9]{16}$').test(j.archive.identifier))throw new BotError('Archive item không hợp lệ.');
+  const r=await fetch('https://archive.org/metadata/'+j.archive.identifier,{redirect:'manual',signal:AbortSignal.timeout(15000)});
+  if(!r.ok)throw new BotError('Chưa đọc được metadata Archive.',60);
+  const data=JSON.parse(new TextDecoder().decode(await limited(r,1024**2))),file=data.files?.find(f=>f.name===j.archive.name);
+  if(!file){if(allowMissing&&data.metadata?.identifier===j.archive.identifier)return null;throw new BotError('Archive đang nhập file; hãy thử lại.',60);}
+  if(Number(file.size)!==j.total||file.md5!==j.archive.md5)throw new BotError('File Archive đã thay đổi; không tự xóa.');return file;
+ }
+ async archiveCleanup(j){
+  let file;try{file=await this.archiveItem(j,true);}catch(error){if(error instanceof BotError&&!error.retry){j.retention='conflict';j.cleanup_error=error.message;this.save(j);return;}throw error;}
+  if(!file){j.state='deleted';j.retention='deleted';j.cleanup_error='';j.notification_needed=false;this.save(j);return;}
+  const c=this.config();if(!c.archive_access||!c.archive_secret)throw new BotError('Archive credentials chưa có.',300);
+  let url='https://s3.us.archive.org/'+j.archive.identifier+'/'+encodeURIComponent(j.archive.name);
+  for(let attempt=0;attempt<5;attempt++){
+   const r=await fetch(url,{method:'DELETE',redirect:'manual',headers:{Authorization:'LOW '+c.archive_access+':'+c.archive_secret,'x-archive-keep-old-version':'0','x-archive-queue-derive':'0'},signal:AbortSignal.timeout(20000)});
+   if([307,308].includes(r.status)){const next=new URL(r.headers.get('Location'),url);if(next.protocol!=='https:'||!(next.hostname==='archive.org'||next.hostname.endsWith('.archive.org'))||next.username||next.password||next.port)throw new BotError('Archive redirect không hợp lệ.');url=next.href;continue;}
+   if(![200,204,404].includes(r.status))throw new BotError('Archive chưa nhận yêu cầu xóa.',300);
+   j.cleanup_retry=now()+300;j.cleanup_error='Archive đang xử lý xóa file.';this.save(j);return;
+  }
+  throw new BotError('Archive redirect quá nhiều lần.',300);
+ }
+ async archiveReady(j){
+  let url=j.archive.url;
+  for(let attempt=0;attempt<6;attempt++){
+   const r=await fetch(url,{redirect:'manual',headers:{Range:'bytes=0-'+Math.min(31,j.total-1)},signal:AbortSignal.timeout(15000)});
+   if([301,302,303,307,308].includes(r.status)){const next=new URL(r.headers.get('Location'),url);if(next.protocol!=='https:'||!(next.hostname==='archive.org'||next.hostname.endsWith('.archive.org'))||next.username||next.password||next.port)throw new BotError('Archive download redirect không hợp lệ.');await r.body?.cancel();url=next.href;continue;}
+   const bytes=await limited(r,64);if(r.status===206&&r.headers.get('Content-Range')==='bytes 0-'+Math.min(31,j.total-1)+'/'+j.total&&bytes.length===Math.min(32,j.total))return;
+   throw new BotError('Archive chưa sẵn sàng tải; bot sẽ thử lại.',60);
+  }
+  throw new BotError('Archive đang chuyển hướng; thử lại.',60);
  }
 }

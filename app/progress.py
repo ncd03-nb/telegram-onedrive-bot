@@ -13,10 +13,11 @@ class Progress:
         self.finished = False
         self.last_signature = None
         self.last_render = 0
+        self.phase = None
 
     def text(self, finished=False):
         pct = 100 if finished else (min(99, self.count * 100 / self.total) if self.total else 0)
-        phase = "Hoàn tất" if finished else ("Đang xác minh OneDrive" if self.total is not None and self.count >= self.total else "Đang tải → upload OneDrive")
+        phase = "Hoàn tất" if finished else (self.phase or ("Đang xác minh OneDrive" if self.total is not None and self.count >= self.total else "Đang tải → upload OneDrive"))
         total = f"{self.total / 1024**3:.2f} GiB" if self.total is not None else "chưa biết dung lượng"
         elapsed = max(0.1,time.monotonic()-self.started)
         speed = self.count/elapsed
@@ -29,7 +30,7 @@ class Progress:
         self.count, self.total, self.destination = count, total, dest
 
     async def render(self, text=None):
-        signature=(self.count,self.total,self.destination,self.finished,text)
+        signature=(self.count,self.total,self.destination,self.finished,text,self.phase)
         if signature==self.last_signature and time.monotonic()-self.last_render<10:return
         delivered = False
         try:

@@ -8,10 +8,10 @@ import {seal,unseal,indexURL} from '../src/services.mjs';
 import {readFile} from 'node:fs/promises';
 
 const credentials={token:'test-only-token',github:'test-only-github',repo:'owner/repo',destination:'onedrive:TelegramUploads',drive_id:'test-drive',client_id:'test-client',client_secret:'test-secret',refresh_token:'test-refresh'};
-async function setup(t,bot='payload',jobs=[],outputs=[]){
+async function setup(t,bot='payload',jobs=[],outputs=[],options={}){
  const calls=[];const config={payload:{host_key:'host',webhook_key:'webhook',users:[123],public:true,groups:true,slash_only:true,username:'payloadbot'},onedrive:{host_key:'host',webhook_key:'webhook',users:[123],public:false,groups:false,username:'odrivebot'}};
  const bundle=await build({entryPoints:[new URL('../src/index.mjs',import.meta.url).pathname.replace(/^\/(\w:)/,'$1')],bundle:true,format:'esm',write:false,external:['cloudflare:workers']});
- const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-01',durableObjects:{BOT_STATE:{className:'BotState',useSQLite:true}},bindings:{BOTS_CONFIG:JSON.stringify(config),PAYLOAD_CREDENTIALS:JSON.stringify(credentials),ONEDRIVE_CREDENTIALS:JSON.stringify(credentials)},outboundService:async request=>{
+ const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-01',durableObjects:{BOT_STATE:{className:'BotState',useSQLite:true}},bindings:{BOTS_CONFIG:JSON.stringify(config),PAYLOAD_CREDENTIALS:JSON.stringify(credentials),ONEDRIVE_CREDENTIALS:JSON.stringify({...credentials,...options.credentials})},outboundService:async request=>{
   const url=new URL(request.url);const body=request.method==='GET'?null:await request.text();calls.push({url:url.href,method:request.method,body,headers:Object.fromEntries(request.headers)});
   if(url.hostname==='api.telegram.org')return Response.json({ok:true,result:{message_id:899+calls.filter(c=>c.url.endsWith('/sendMessage')).length}});
   if(url.hostname==='api.github.com'){
@@ -23,6 +23,11 @@ async function setup(t,bot='payload',jobs=[],outputs=[]){
    if(request.method==='DELETE')return new Response(null,{status:204});
    return Response.json({id:'file-id',name:'rom.zip',file:{},size:1024,eTag:'changed-metadata',cTag:'original-content',webUrl:'https://tenant.sharepoint.com/file', '@microsoft.graph.downloadUrl':'https://tenant.sharepoint.com/download?fake=1'});
   }
+  if(url.hostname==='archive.org'){
+   if(url.pathname.startsWith('/download/'))return new Response(new Uint8Array(32),{status:206,headers:{'Content-Range':'bytes 0-31/1024'}});
+   return Response.json({metadata:{identifier:url.pathname.split('/').at(-1)},files:options.missing?[]:[{name:'rom.zip',size:1024,md5:options.changed?'b'.repeat(32):'a'.repeat(32)}]});
+  }
+  if(url.hostname==='s3.us.archive.org'&&request.method==='DELETE')return new Response(null,{status:204});
   throw new Error('Unexpected test fetch: '+url.hostname);
  }});
  t.after(()=>mf.dispose());
@@ -124,4 +129,37 @@ test('valid Index Link redirects without exposing credentials to download hosts'
 test('Python AES-GCM envelopes are readable by the Cloudflare implementation',async()=>{
  const fixture=JSON.parse(await readFile(new URL('./python-envelope.json',import.meta.url),'utf8'));
  const obj=await unseal('fixture-key',fixture.envelope,'0123456789ab');assert.equal(obj.url,'https://example.org/private?token=fixture');
+});
+test('Archive copy dispatch, final reply, Index redirect and legacy file routing coexist',async t=>{
+ const {api,webhook,calls,mf}=await setup(t,'onedrive',[],[],{credentials:{storage_backend:'archive'}});
+ const u=update('/copy https://example.org/rom.zip',61);u.message.chat={id:123,type:'private'};
+ await webhook(u);await waitFor(()=>calls.some(c=>c.url.includes('/archive-copy.yml/dispatches')));
+ const input=JSON.parse(calls.find(c=>c.url.includes('/archive-copy.yml/dispatches')).body).inputs;
+ const j=await unseal(credentials.token,input.job_payload,input.job_id);assert.equal(j.storage,'archive');
+ const identifier='odrivegay-'+j.id+'-'+'c'.repeat(16),completed=Date.now()/1000;
+ const record={version:1,id:j.id,owner:123,chat:123,destination:credentials.destination+'/'+j.id+'/rom.zip',size:1024,completed,expires:completed+43200,file_id:identifier,etag:'a'.repeat(32),link_ctag:'d'.repeat(64)};
+ const result={id:j.id,owner:123,state:'done',record,manifest:true,archive:{identifier,name:'rom.zip',url:'https://archive.org/download/'+identifier+'/rom.zip',md5:record.etag,sha256:record.link_ctag}};
+ const body={id:j.id,result:{sealed:await seal(credentials.token,result,j.id)}};
+ assert.equal((await api('result',body)).status,200);await api('result',body);
+ const sends=calls.filter(c=>c.url.endsWith('/sendMessage'));assert.equal(sends.length,2);
+ const final=JSON.parse(sends.at(-1).body);assert.equal(final.reply_parameters.message_id,7);assert.equal(final.reply_markup.inline_keyboard[0].length,2);
+ const response=await mf.dispatchFetch(final.reply_markup.inline_keyboard[0][0].url,{redirect:'manual'});
+ assert.equal(response.status,302);assert.equal(response.headers.get('Location'),result.archive.url);
+ assert.equal(calls.filter(c=>c.url.includes('graph.microsoft.com')).length,0);
+ assert.ok(calls.filter(c=>c.url.startsWith('https://archive.org')).every(c=>!c.headers.authorization));
+});
+test('Archive TTL checks the original checksum before deleting a file',async t=>{
+ const jid='888888888888',identifier='odrivegay-'+jid+'-'+'c'.repeat(16),completed=Date.now()/1000-44000;
+ const job={id:jid,owner:123,chat:123,storage:'archive',state:'done',created:completed,completed,expires:completed+43200,destination:credentials.destination+'/'+jid+'/rom.zip',file_id:identifier,total:1024,etag:'a'.repeat(32),manifest:1,retention:'armed',archive:{identifier,name:'rom.zip',md5:'a'.repeat(32),sha256:'d'.repeat(64),url:'https://archive.org/download/'+identifier+'/rom.zip'}};
+ const {calls}=await setup(t,'onedrive',[job],[],{changed:true,credentials:{archive_access:'test-access',archive_secret:'test-secret'}});
+ await waitFor(()=>calls.some(c=>c.url.startsWith('https://archive.org/metadata/')));
+ assert.equal(calls.filter(c=>c.method==='DELETE').length,0);
+});
+test('Archive TTL sends delete only to Archive using the retained credentials',async t=>{
+ const jid='999999999999',identifier='odrivegay-'+jid+'-'+'c'.repeat(16),completed=Date.now()/1000-44000;
+ const job={id:jid,owner:123,chat:123,storage:'archive',state:'done',created:completed,completed,expires:completed+43200,destination:credentials.destination+'/'+jid+'/rom.zip',file_id:identifier,total:1024,etag:'a'.repeat(32),manifest:1,retention:'armed',archive:{identifier,name:'rom.zip',md5:'a'.repeat(32),sha256:'d'.repeat(64),url:'https://archive.org/download/'+identifier+'/rom.zip'}};
+ const {calls}=await setup(t,'onedrive',[job],[],{credentials:{archive_access:'test-access',archive_secret:'test-secret'}});
+ await waitFor(()=>calls.some(c=>c.method==='DELETE'));
+ const deletion=calls.find(c=>c.method==='DELETE');assert.equal(deletion.url,'https://s3.us.archive.org/'+identifier+'/rom.zip');assert.equal(deletion.headers.authorization,'LOW test-access:test-secret');assert.equal(deletion.headers['x-archive-keep-old-version'],'0');
+ assert.ok(calls.filter(c=>c.url.startsWith('https://archive.org')).every(c=>!c.headers.authorization));
 });

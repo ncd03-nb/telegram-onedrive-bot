@@ -1,0 +1,98 @@
+name: Copy cloud file to Internet Archive
+run-name: copy-${{ inputs.job_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        required: true
+        type: string
+      source_url:
+        default: ''
+        type: string
+      job_payload:
+        default: ''
+        type: string
+      requested_name:
+        default: ''
+        type: string
+      owner:
+        default: '0'
+        type: string
+      chat:
+        default: '0'
+        type: string
+      message_id:
+        default: '0'
+        type: string
+      max_file_gib:
+        default: '12'
+        type: string
+      retention_hours:
+        default: '12'
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: onedrive-copy-${{ inputs.job_id }}
+  cancel-in-progress: false
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build transfer container
+        run: docker build -t onedrive-worker .
+      - name: Prepare private runner volumes
+        run: |
+          mkdir -p "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
+          sudo chown -R 10001:10001 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
+          sudo chmod 700 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data"
+      - name: Download and multipart upload to Internet Archive
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          HUB_URL: ${{ vars.HUB_URL }}
+          HUB_BOT_ID: onedrive
+          ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_PAYLOAD: ${{ inputs.job_payload }}
+          JOB_SOURCE_URL: ${{ inputs.source_url }}
+          JOB_REQUESTED_NAME: ${{ inputs.requested_name }}
+          JOB_OWNER: ${{ inputs.owner }}
+          JOB_CHAT: ${{ inputs.chat }}
+          JOB_MESSAGE_ID: ${{ inputs.message_id }}
+          MAX_FILE_GIB: ${{ inputs.max_file_gib }}
+          RETENTION_HOURS: ${{ inputs.retention_hours }}
+          DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL || 'https://telegram-bot-failover.der-templates.workers.dev' }}
+        run: |
+          docker run --rm --name onedrive-worker --stop-timeout 25 \
+            -v "$RUNNER_TEMP/od-config:/config" -v "$RUNNER_TEMP/od-data:/data" \
+            -v "$RUNNER_TEMP/od-result:/result" \
+            -e TELEGRAM_BOT_TOKEN -e ALLOWED_USER_IDS -e IA_ACCESS_KEY -e IA_SECRET_KEY -e GOOGLE_TOKEN_B64 \
+            -e JOB_ID -e JOB_PAYLOAD -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
+            -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
+            -e ONEDRIVE_CHUNK_MIB=50 \
+            -e DOWNLOAD_BASE_URL -e HUB_URL -e HUB_BOT_ID \
+            -e RESULT_PATH=/result/result.json onedrive-worker python -m app.archive_runner
+      - name: Store small result for controller recovery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/od-result/result.json
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: Wake failover controller after artifact storage
+        if: always()
+        env:
+          HUB_URL: ${{ vars.HUB_URL }}
+          HUB_BOT_ID: onedrive
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          JOB_ID: ${{ inputs.job_id }}
+          RESULT_PATH: ${{ runner.temp }}/od-result/result.json
+        run: python scripts/notify_controller.py

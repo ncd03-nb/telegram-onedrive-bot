@@ -51,7 +51,7 @@ export async function findRun(c,job){
  const rows=obj.workflow_runs.filter(r=>r.display_title===prefix(job)+job.id);
  if(rows.length>1)throw new BotError('Có nhiều workflow cùng mã; cần kiểm tra Actions.');return rows[0];
 }
-export const workflow=job=>job.kind==='scan'?'scan.yml':job.bot==='payload'?'extract.yml':'copy.yml';
+export const workflow=job=>job.kind==='scan'?'scan.yml':job.bot==='payload'?'extract.yml':job.storage==='archive'?'archive-copy.yml':'copy.yml';
 export const prefix=job=>job.kind==='scan'?'scan-':job.bot==='payload'?'extract-':'copy-';
 export async function artifact(c,job){
  const obj=await github(c,'GET','/actions/runs/'+job.run_id+'/artifacts?per_page=100');

@@ -35,6 +35,7 @@ class Settings:
     hub_url: str = ""
     hub_role: str = "docker"
     hub_bot: str = "onedrive"
+    storage_backend: str = "onedrive"
 
     @classmethod
     def load(cls):
@@ -43,6 +44,7 @@ class Settings:
         if not re.fullmatch(r"\d+:[A-Za-z0-9_-]+", token) or not users:
             raise ValueError("Cần TELEGRAM_BOT_TOKEN và ALLOWED_USER_IDS hợp lệ trong .env.")
         s = cls(token=token, users=users,
+                storage_backend=os.getenv('STORAGE_BACKEND','onedrive'),
                 mode=os.environ.get("BOT_MODE", "polling"),
                 hub_url=os.environ.get("HUB_URL", "").rstrip("/"),
                 hub_role=os.environ.get("HUB_ROLE", "docker"),
@@ -96,7 +98,8 @@ class Settings:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(base64.b64decode(os.environ[env], validate=True))
                 path.chmod(0o600)
-        if s.mode != "standby":
+        if s.storage_backend not in {'onedrive','archive'}:raise ValueError('Invalid storage backend')
+        if s.mode != "standby" and s.storage_backend=='onedrive':
             if not s.config.is_file():
                 raise ValueError("Thiếu rclone.conf. Hãy đăng nhập OneDrive bằng rclone config.")
             config = configparser.ConfigParser(interpolation=None)
