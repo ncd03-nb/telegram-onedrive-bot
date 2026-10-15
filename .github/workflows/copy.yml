@@ -82,3 +82,11 @@ jobs:
           path: ${{ runner.temp }}/od-result/result.json
           if-no-files-found: ignore
           retention-days: 2
+      - name: Wake failover controller after artifact storage
+        if: always()
+        env:
+          HUB_URL: ${{ vars.HUB_URL }}
+          HUB_BOT_ID: onedrive
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: python scripts/notify_controller.py

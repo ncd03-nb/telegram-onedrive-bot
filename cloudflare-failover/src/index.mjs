@@ -74,7 +74,8 @@ export class BotState extends DurableObject {
     }
     if(action==='result'){
       if(!/^[a-f0-9]{12}$/.test(body.id))return reply({error:'invalid job'},400);
-      this.sql.exec('INSERT OR IGNORE INTO events(id,payload,created) VALUES(?,?,?)','r:'+body.id,'{}',now);
+      // Rearm the event: the workflow announces again after artifact upload.
+      this.sql.exec('INSERT INTO events(id,payload,created) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET done=0,payload=excluded.payload,created=excluded.created','r:'+body.id,'{}',now);
       this.persist(s);await this.schedule();
       if(!s.leader||s.leader.until<=now)this.ctx.waitUntil(this.wake());
       return reply({accepted:true});

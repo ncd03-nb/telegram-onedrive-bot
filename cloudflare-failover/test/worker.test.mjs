@@ -33,6 +33,9 @@ test('durable webhook queue, atomic checkpoint, fencing and callbacks',async()=>
   granted=await (await call('/api/onedrive/tick',{...other,epoch:granted.epoch})).json();assert.deepEqual(granted.events,['r:0123456789ab']);
   await call('/api/onedrive/save',{...other,epoch:granted.epoch,acked_events:granted.events});
   status=await (await call('/api/onedrive/status',{})).json();assert.equal(status.pending,0);
+  await call('/api/onedrive/result',{id:'0123456789ab'});
+  status=await (await call('/api/onedrive/status',{})).json();assert.equal(status.pending,1);
+  await call('/api/onedrive/save',{...other,epoch:granted.epoch,acked_events:['r:0123456789ab']});
   // Bare links and commands for another bot never reach the payload queue.
   update.message.text='https://facebook.com/example';await telegram('payload',update,'payloadhook');
   update.message.text='/extract@otherbot https://example.org boot';await telegram('payload',update,'payloadhook');
