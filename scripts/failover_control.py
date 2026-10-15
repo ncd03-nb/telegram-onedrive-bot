@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--repo',type=Path,default=Path.cwd())
     parser.add_argument('--bot',choices=['onedrive','payload'],required=True)
     parser.add_argument('--hub',default='https://telegram-bot-failover.der-templates.workers.dev')
+    parser.add_argument('--text',default='/status')
     args=parser.parse_args();root=args.repo.resolve();env=read_env(root/'.env');token=env['TELEGRAM_BOT_TOKEN']
     origin=args.hub.rstrip('/');host_headers={'Authorization':'Bearer '+key(token,'bot-failover-host-v1')}
     if args.action=='configure-docker':
@@ -47,7 +48,7 @@ def main():
         owner=next(int(x) for x in env['ALLOWED_USER_IDS'].split(',') if x.strip())
         identifier=-int(time.time()*1000)
         update={'update_id':identifier,'message':{'message_id':0,'date':int(time.time()),
-            'from':{'id':owner,'is_bot':False,'first_name':'Host failover check'},'chat':{'id':owner,'type':'private'},'text':'/status'}}
+            'from':{'id':owner,'is_bot':False,'first_name':'Cloudflare controller check'},'chat':{'id':owner,'type':'private'},'text':args.text}}
         request(origin+'/telegram/'+args.bot,update,{'X-Telegram-Bot-Api-Secret-Token':key(token,'bot-failover-webhook-v1')})
         print(json.dumps({'bot':args.bot,'probe_update':identifier}))
     else:

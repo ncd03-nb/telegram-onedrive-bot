@@ -23,7 +23,7 @@ def main():
             from pathlib import Path
             path=Path(os.environ['RESULT_PATH'])
             if path.is_file() and path.stat().st_size<=180000:result=json.loads(path.read_text())
-        request=urllib.request.Request(origin+'/api/'+bot+'/result',data=json.dumps({'id':job,'result':result}).encode(),
+        request=urllib.request.Request(origin+'/api/'+bot+'/result',data=json.dumps({'id':job,'result':result,'run_id':int(os.getenv('GITHUB_RUN_ID','0'))}).encode(),
             headers={'Authorization':'Bearer '+secret,'Content-Type':'application/json','User-Agent':'BotFailoverCallback/1.0'})
         try:
             with urllib.request.urlopen(request,timeout=20) as response:

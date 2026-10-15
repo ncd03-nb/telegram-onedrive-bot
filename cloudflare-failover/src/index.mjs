@@ -25,7 +25,7 @@ export default {
       return reply({ok:true,service:'telegram-cloud-controller',controllers:Object.fromEntries(states)});
     }
     const download=/^\/0:\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-    if(download&&request.method==='GET')return env.BOT_STATE.get(env.BOT_STATE.idFromName('onedrive')).fetch(new Request('https://state/index',{method:'POST',headers:{'Content-Type':'application/json','X-Bot':'onedrive'},body:JSON.stringify({capability:download[1],name:decodeURIComponent(download[2])})}));
+    if(download&&request.method==='GET')return env.BOT_STATE.get(env.BOT_STATE.idFromName('onedrive')).fetch(new Request('https://state/index',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','X-Bot':'onedrive'},body:JSON.stringify({capability:download[1],name:decodeURIComponent(download[2])})}));
     const match=/^\/(telegram|api)\/(onedrive|payload)(?:\/(tick|save|release|result|status|prepare|activate|audit))?$/.exec(url.pathname);
     if(!match)return reply({error:'not found'},404);
     const [,route,bot,action]=match,config=bots(env)[bot];
@@ -83,7 +83,7 @@ export class BotState extends DurableObject {
     if(this.controller.mode()==='cloudflare'){
       if(action==='status')return reply({leader:'cloudflare',epoch:s.epoch,initialized:true,pending:this.pending().length,...this.controller.summary()});
       if(['tick','save','release'].includes(action))return reply({granted:false,leader:'cloudflare',retired:true});
-      if(action==='result'&&body.result){try{await this.controller.result(body.id,body.result);await this.controller.schedule();return reply({accepted:true});}catch(error){return reply({error:error instanceof BotError?error.message:'Invalid callback'},400);}}
+      if(action==='result'&&body.result){try{await this.controller.result(body.id,body.result,body.run_id);await this.controller.schedule();return reply({accepted:true});}catch(error){return reply({error:error instanceof BotError?error.message:'Invalid callback'},400);}}
     }
     if(action==='telegram'){
       if(this.sql.exec('SELECT COUNT(*) AS n FROM events WHERE done=0').one().n>=1000)return reply({error:'queue full'},503);

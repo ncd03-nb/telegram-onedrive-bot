@@ -143,11 +143,12 @@ export class Controller {
    }
   }else if(j.phase==='queued'&&!j.queue_notified){await edit(c,j,'⏳ '+j.id+' — GitHub đang cấp runner\nTiến độ: 0%');j.queue_notified=true;this.save(j);}
  }
- async result(jid,data){
+ async result(jid,data,runID){
   let j=this.get(jid);if(!j)throw new BotError('Tác vụ không tồn tại.');
   const c=this.config();const result=data?.sealed?await unseal(c.token,data.sealed,jid):data;
   j=this.get(jid);
   if(result?.id!==jid||!['done','failed','cancelled'].includes(result.state)||result.owner!==undefined&&result.owner!==j.owner)throw new BotError('Kết quả không khớp tác vụ.');
+  if(Number.isSafeInteger(runID)&&runID>0){j.run_id=runID;this.save(j);}
   if(terminal.has(j.state)&&!(j.state==='cancelled'&&j.bot==='onedrive'&&result.state==='done'))return {accepted:true};
   if(result.state==='done'){
    if(j.kind==='scan'){

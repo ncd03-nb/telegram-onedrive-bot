@@ -87,6 +87,7 @@ class Failover:
         self.lock=asyncio.Lock();self.digest='';self.pending_ids=set();self.event_ids=set()
         self.role=self.s.hub_role
         self.retry_after=0
+        self.retired=False
 
     def summary(self):
         due=self.bot.store.db.execute("SELECT MIN(expires) FROM jobs WHERE state='done' AND retention IN ('pending','armed')").fetchone()[0]
@@ -155,6 +156,11 @@ class Failover:
                         continue
                     result=await self.request()
                     self.connected=True
+                    if result.get('retired'):
+                        if self.active:await self.deactivate()
+                        self.retired=True
+                        log.info('Cloudflare owns this bot; local controller remains disabled.')
+                        await asyncio.Event().wait()
                     if not result.get('granted'):
                         if self.active:await self.deactivate()
                         self.epoch=None;self.digest=''
@@ -211,7 +217,7 @@ class Failover:
         return web.json_response({'accepted':True},status=202)
 
     def status(self):
-        return {'role':self.role,'leader':self.active,'connected':self.connected,'epoch':self.epoch}
+        return {'role':self.role,'leader':self.active,'connected':self.connected,'epoch':self.epoch,'retired':self.retired}
 
 
 async def notify_result(settings, job_id):

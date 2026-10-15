@@ -64,10 +64,10 @@ test('slash-only encrypted dispatch, owner checking and completion deduplication
  assert.equal(job.chat,-10022);assert.equal(job.partitions,'boot,init_boot');
  const bad={id:job.id,owner:999,state:'done',files:[]};assert.equal((await api('result',{id:job.id,result:{sealed:await seal(credentials.token,bad,job.id)}})).status,400);
  const file={name:'payload.zip',size:123,url:'https://drive.google.com/uc?id=fixture',members:[{name:'boot.img'},{name:'init_boot.img'}],rom_version:'OS4.test'};
- const done={id:job.id,owner:123,state:'done',files:[file],notified:false};const body={id:job.id,result:{sealed:await seal(credentials.token,done,job.id)}};
+ const done={id:job.id,owner:123,state:'done',files:[file],notified:false};const body={id:job.id,result:{sealed:await seal(credentials.token,done,job.id)},run_id:321};
  assert.equal((await api('result',body)).status,200);assert.equal((await api('result',body)).status,200);
  assert.equal(calls.filter(c=>c.body?.includes('✅ Hoàn thành')).length,1);
- const audit=await (await api('audit')).json();assert.equal(audit.jobs.length,1);assert.equal(audit.jobs[0].state,'done');assert.equal(audit.outputs,1);
+ const audit=await (await api('audit')).json();assert.equal(audit.jobs.length,1);assert.equal(audit.jobs[0].state,'done');assert.equal(audit.jobs[0].run_id,321);assert.equal(audit.outputs,1);
 });
 test('12-hour deletion protects changed eTags; Index Link uses content identity',async t=>{
  const expires=Date.now()/1000-1;const job={id:'111111111111',update_id:3,owner:123,chat:123,state:'done',created:1,completed:expires-43200,expires,destination:'onedrive:TelegramUploads/111111111111/rom.zip',total:1024,file_id:'file-id',etag:'original-etag',link_ctag:'original-content',retention:'armed',manifest:1};
@@ -81,6 +81,12 @@ test('authenticated envelopes reject cross-job replay and tampering',async()=>{
  const value=await seal(credentials.token,{id:'0123456789ab',url:'https://private.example'},'0123456789ab');
  assert.equal((await unseal(credentials.token,value,'0123456789ab')).id,'0123456789ab');
  await assert.rejects(unseal(credentials.token,value,'222222222222'));await assert.rejects(unseal('other-token',value,'0123456789ab'));
+});
+test('valid Index Link redirects without exposing credentials to download hosts',async t=>{
+ const expires=Date.now()/1000+43200;const job={id:'333333333333',update_id:4,owner:123,chat:123,state:'done',created:1,completed:expires-43200,expires,destination:'onedrive:TelegramUploads/333333333333/rom.zip',total:1024,file_id:'file-id',etag:'original-etag',link_ctag:'original-content',retention:'armed',manifest:1};
+ const {mf,calls}=await setup(t,'onedrive',[job]);const url=await indexURL(credentials,job,'https://hub');
+ const response=await mf.dispatchFetch(url,{redirect:'manual'});assert.equal(response.status,302,await response.clone().text());assert.equal(response.headers.get('Location'),'https://tenant.sharepoint.com/download?fake=1');
+ assert.equal(calls.filter(c=>c.url.startsWith('https://tenant.sharepoint.com')).length,0);
 });
 test('Python AES-GCM envelopes are readable by the Cloudflare implementation',async()=>{
  const fixture=JSON.parse(await readFile(new URL('./python-envelope.json',import.meta.url),'utf8'));
