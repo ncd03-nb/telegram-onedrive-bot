@@ -25,6 +25,8 @@ def download_url(settings, job):
         return ''
     name = job['destination'].rsplit('/', 1)[-1]
     identity = job['id'] + '.' + str(int(job['expires']))
+    if job.get('link_ctag'):
+        identity += '.' + hashlib.sha256(job['link_ctag'].encode()).hexdigest()[:12]
     return settings.download_base_url + '/0:/' + identity + '.' + signature(settings, identity, name) + '/' + quote(name, safe='')
 
 
@@ -36,11 +38,12 @@ class Downloads:
     async def handle(self, request):
         headers = {'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow'}
         capability, name = request.match_info['capability'], request.match_info['name']
-        match = re.fullmatch(r'([a-f0-9]{12})\.([0-9]{1,12})\.([A-Za-z0-9_-]{32})', capability)
+        match = re.fullmatch(r'([a-f0-9]{12})\.([0-9]{1,12})(?:\.([a-f0-9]{12}))?\.([A-Za-z0-9_-]{32})', capability)
         if not self.s.download_base_url or not match or not name or name.startswith('.') or any(c in name for c in '/\\\r\n'):
             raise web.HTTPNotFound(text='Link không hợp lệ.', headers=headers)
-        job_id, expiry, mac = match.groups()
-        if not hmac.compare_digest(mac, signature(self.s, job_id + '.' + expiry, name)):
+        job_id, expiry, content_tag, mac = match.groups()
+        identity = job_id + '.' + expiry + ('.' + content_tag if content_tag else '')
+        if not hmac.compare_digest(mac, signature(self.s, identity, name)):
             raise web.HTTPNotFound(text='Link không hợp lệ.', headers=headers)
         if int(expiry) <= time.time():
             raise web.HTTPGone(text='Link đã hết hạn lưu 12 giờ.', headers=headers)
@@ -54,7 +57,17 @@ class Downloads:
                         or record['owner'] not in self.s.users):
                     raise web.HTTPNotFound(text='File không còn khả dụng.', headers=headers)
                 item = await self.drive.links(destination)
-                if (item.get('id') != record['file_id'] or item.get('eTag') != record['etag']
+                if content_tag:
+                    ctag = record.get('link_ctag', '')
+                    expected = hashlib.sha256(ctag.encode()).hexdigest()[:12]
+                    if not ctag or not hmac.compare_digest(content_tag, expected):
+                        raise web.HTTPGone(text='Link đã cũ; dùng /link để lấy lại.', headers=headers)
+                    same_version = item.get('cTag') == ctag
+                else:
+                    # Legacy links have no content snapshot. Keep their strict
+                    # eTag check until the owner explicitly requests a new link.
+                    same_version = item.get('eTag') == record['etag']
+                if (item.get('id') != record['file_id'] or not same_version
                         or item.get('size') != record['size']):
                     raise web.HTTPGone(text='File đã thay đổi hoặc bị thay thế.', headers=headers)
                 if int(expiry) <= time.time():

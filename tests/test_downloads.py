@@ -71,6 +71,30 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.fetch()).status, 410)
             self.item[key] = original
 
+    async def test_content_link_survives_metadata_etag_change_but_rejects_edits(self):
+        self.record['link_ctag']='content-v1'
+        self.job['link_ctag']='content-v1'
+        self.item['cTag']='content-v1'
+        self.item['eTag']='metadata-v2'
+        self.assertEqual((await self.fetch()).status,302)
+        self.item['cTag']='content-v2'
+        self.assertEqual((await self.fetch()).status,410)
+        self.item.pop('cTag')
+        self.assertEqual((await self.fetch()).status,410)
+
+    async def test_new_content_capability_cannot_select_another_snapshot(self):
+        self.job['link_ctag']='old-content'
+        self.record['link_ctag']='new-content'
+        self.item['cTag']='new-content'
+        self.assertEqual((await self.fetch()).status,410)
+
+    async def test_content_link_still_checks_id_and_size(self):
+        self.job['link_ctag']=self.record['link_ctag']=self.item['cTag']='content-v1'
+        for key,value in (('id','replacement'),('size',20)):
+            old=self.item[key];self.item[key]=value
+            self.assertEqual((await self.fetch()).status,410)
+            self.item[key]=old
+
     async def test_manifest_cannot_extend_deadline_or_select_other_file(self):
         self.record['expires'] += 1
         self.assertEqual((await self.fetch()).status, 404)
@@ -91,8 +115,14 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
         text = link_message(self.job, self.item, settings=self.s)
         self.assertEqual(text, '✅ Hoàn thành\n📄 ' + self.item['name'])
         self.assertNotIn('secret=temporary', text)
-        self.assertEqual(link_keyboard(self.s, self.job, self.item)['inline_keyboard'][0][0]['text'], '⚡ Index Link')
-        self.assertIn('secret=temporary', link_keyboard(self.s, {**self.job, 'manifest': 0}, self.item)['inline_keyboard'][0][0]['url'])
+        row=link_keyboard(self.s,self.job,self.item)['inline_keyboard'][0]
+        self.assertEqual([button['text'] for button in row],['⚡ Index Link','⬇ Tải trực tiếp'])
+        self.assertEqual(row[0]['url'],download_url(self.s,self.job))
+        self.assertEqual(row[1]['url'],self.item['@microsoft.graph.downloadUrl'])
+        fallback=link_keyboard(self.s,{**self.job,'manifest':0},self.item)['inline_keyboard'][0]
+        self.assertEqual(len(fallback),1)
+        self.assertEqual(fallback[0]['text'],'⬇ Tải trực tiếp')
+        self.assertEqual(link_keyboard(self.s,self.job,self.item,direct_only=True)['inline_keyboard'],[fallback])
 
     async def test_key_rotation_invalidates_previous_links(self):
         old_path = urlsplit(download_url(self.s, self.job)).path

@@ -17,9 +17,12 @@ class Retention:
         self.lock = asyncio.Lock()
 
     def record(self, job):
-        return {"version": 1, "id": job["id"], "owner": job["owner"], "chat": job["chat"],
+        record = {"version": 1, "id": job["id"], "owner": job["owner"], "chat": job["chat"],
             "destination": job["destination"], "size": job["total"], "completed": job["completed"],
             "expires": job["expires"], "file_id": job["file_id"], "etag": job["etag"]}
+        if job.get('link_ctag'):
+            record['link_ctag'] = job['link_ctag']
+        return record
 
     def validate_record(self, obj, job_id):
         if not isinstance(obj, dict) or obj.get("version") != 1 or obj.get("id") != job_id or not re.fullmatch(r"[a-f0-9]{12}", job_id):
@@ -30,6 +33,8 @@ class Retention:
             raise ValueError("Manifest outside bot job directory")
         if not isinstance(obj.get("size"), int) or obj["size"] < 0 or not obj.get("file_id") or not obj.get("etag"):
             raise ValueError("Invalid file identity")
+        if 'link_ctag' in obj and (not isinstance(obj['link_ctag'],str) or not 0 < len(obj['link_ctag']) <= 4096):
+            raise ValueError('Invalid content identity')
         if any(not isinstance(obj.get(k), int) for k in ("owner", "chat")):
             raise ValueError("Invalid owner")
         if any(not isinstance(obj.get(k), (int, float)) or not math.isfinite(obj[k]) for k in ("completed", "expires")) or obj["expires"] <= obj["completed"]:
@@ -48,7 +53,8 @@ class Retention:
         if (job["file_id"] and obj.get("id") != job["file_id"]) or (job["etag"] and obj.get("eTag") != job["etag"]):
             self.store.change(job["id"], retention="conflict", cleanup_error="File đã được thay thế / chỉnh sửa; không tự xóa.")
             return None
-        self.store.change(job["id"], file_id=obj["id"], etag=obj["eTag"], file_url=obj.get("webUrl", ""), retention="armed", cleanup_error="")
+        self.store.change(job["id"], file_id=obj["id"], etag=obj["eTag"], file_url=obj.get("webUrl", ""),
+            link_ctag=obj.get('cTag',''), retention="armed", cleanup_error="")
         job = self.store.get(job["id"], job["owner"])
         try:
             await self.drive.write_manifest(job["destination"], self.record(job))
@@ -57,6 +63,26 @@ class Retention:
         else:
             self.store.change(job["id"], manifest=1, cleanup_error="")
         return obj
+
+    async def refresh_link_record(self, job, item):
+        """Owner-requested legacy link upgrade; never reset retention identity/TTL."""
+        async with self.lock:
+            job = self.store.get(job['id'],job['owner'])
+            if not job or job['state'] != 'done' or not job['expires'] or job['expires'] <= time.time():
+                raise SourceError('File đã hết hạn hoặc không còn khả dụng.')
+            if (not job['file_id'] or item.get('id') != job['file_id'] or 'file' not in item
+                    or item.get('size') != job['total']):
+                raise SourceError('File đã bị thay thế hoặc đổi dung lượng; không trả link file khác.')
+            ctag = item.get('cTag','')
+            if job.get('link_ctag') and job['link_ctag'] != ctag:
+                raise SourceError('Nội dung file đã bị thay đổi; không tạo link mới cho file đã sửa.')
+            if not ctag and item.get('eTag') != job['etag']:
+                raise SourceError('Chưa xác minh được nội dung file; OneDrive không trả cTag.')
+            updated = {**job,'link_ctag':ctag}
+            record = self.validate_record(self.record(updated),job['id'])
+            await self.drive.write_manifest(job['destination'],record)
+            self.store.change(job['id'],link_ctag=ctag,manifest=1,file_url=item.get('webUrl',''),links_error='')
+            return self.store.get(job['id'],job['owner'])
 
     async def restore(self):
         # Cross-host recovery: only manifests within a valid, single bot job directory.

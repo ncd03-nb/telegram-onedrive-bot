@@ -132,12 +132,38 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         bot = Bot(self.s)
         bot.store.close()
         bot.store = self.store
+        bot.retention = self.retention
         bot.telegram.send = AsyncMock()
         bot.drive.links = AsyncMock(return_value=self.drive.item.return_value)
         expiry = self.job_now()["expires"]
         await bot.handle({"update_id": 200, "message": {"text": "/dl " + self.job["id"], "from": {"id": 1}, "chat": {"id": 1, "type": "private"}}})
         self.assertEqual(self.job_now()["expires"], expiry)
         self.assertIn("temp-download", bot.telegram.send.await_args.kwargs["reply_markup"]["inline_keyboard"][0][0]["url"])
+
+    async def test_owner_refresh_upgrades_legacy_link_without_rearming_deletion(self):
+        await self.retention.arm(self.job_now())
+        old=self.job_now()
+        item={**self.drive.item.return_value,'eTag':'metadata-v2','cTag':'content-v1'}
+        refreshed=await self.retention.refresh_link_record(old,item)
+        self.assertEqual(refreshed['link_ctag'],'content-v1')
+        self.assertEqual(refreshed['etag'],old['etag'])
+        self.assertEqual(refreshed['expires'],old['expires'])
+        self.assertEqual(refreshed['completed'],old['completed'])
+        self.assertEqual(self.drive.write_manifest.await_args.args[1]['link_ctag'],'content-v1')
+        self.assertEqual(self.drive.write_manifest.await_args.args[1]['etag'],old['etag'])
+
+    async def test_refresh_does_not_trust_changed_content_or_extend_expired_file(self):
+        await self.retention.arm(self.job_now())
+        self.store.change(self.job['id'],link_ctag='original-content')
+        self.drive.write_manifest.reset_mock()
+        for change in ({'cTag':'changed-content'},{'id':'replacement','cTag':'original-content'},
+                       {'size':20,'cTag':'original-content'}):
+            with self.assertRaises(SourceError):
+                await self.retention.refresh_link_record(self.job_now(),{**self.drive.item.return_value,**change})
+        self.store.change(self.job['id'],expires=time.time()-1)
+        with self.assertRaises(SourceError):
+            await self.retention.refresh_link_record(self.job_now(),self.drive.item.return_value)
+        self.drive.write_manifest.assert_not_awaited()
 
 
 class GraphDeleteTests(unittest.IsolatedAsyncioTestCase):

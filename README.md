@@ -229,11 +229,13 @@ Hàng đợi SQLite có thể giữ URL riêng tư / link ký trong khi job ch�
 
 ### Link tải qua Render
 
-Bot trả tin nhắn **✅ Hoàn thành**, dòng **📄 Tên file** và duy nhất nút **⚡ Index Link** khi hoàn tất hoặc khi dùng `/link`, `/dl`. Không hiển thị URL dài trong nội dung tin nhắn. Tên miền SharePoint gốc của trường giữ nguyên. URL có dạng `https://telegram-onedrive-standby.onrender.com/0:/<job>.<expiry>.<signature>/Tên-file.zip`.
+Bot trả tin nhắn **✅ Hoàn thành**, dòng **📄 Tên file** và hai nút cạnh nhau **⚡ Index Link**, **⬇ Tải trực tiếp** khi hoàn tất hoặc khi dùng `/link`. `/dl` chỉ trả nút tải trực tiếp mới. Không hiển thị URL dài trong nội dung tin nhắn. Tên miền SharePoint gốc của trường giữ nguyên. Index Link mới có dạng `https://telegram-onedrive-standby.onrender.com/0:/<job>.<expiry>.<content-tag>.<signature>/Tên-file.zip`; file không có cTag vẫn dùng định dạng cũ và kiểm tra eTag.
 
 `DOWNLOAD_BASE_URL` là địa chỉ HTTPS gốc; mặc định của repo này là Render hiện tại. Đặt rỗng để dùng link Microsoft trực tiếp, hoặc đổi đồng bộ ở Docker `.env`, Render env và GitHub Actions repository variable cùng tên khi đổi domain. Không cần thêm secret: chữ ký HMAC có mục đích riêng được dẫn xuất từ token bot đã có trên ba host. Đổi token bot sẽ vô hiệu hóa các Index Link cũ.
 
-Link là quyền tải cho người giữ URL; không có danh sách file công khai. Trước mỗi redirect HTTP 302, endpoint xác minh chữ ký, tên file, hạn lưu, manifest, owner, ID, eTag và dung lượng file. Nó lấy URL Microsoft mới, không lưu URL tải tạm thời và không proxy nội dung file. Render chỉ đọc manifest nhỏ và metadata, hoạt động cả ở chế độ `standby`, không cần SQLite đồng bộ hay nhận Telegram updates. Nếu chưa lưu được manifest, bot trả link Microsoft tạm thời và thử lưu manifest lại theo lịch.
+Link là quyền tải cho người giữ URL; không có danh sách file công khai. Trước mỗi redirect HTTP 302, endpoint xác minh chữ ký, tên file, hạn lưu, manifest, owner, ID, cTag nội dung và dung lượng file. cTag không đổi khi chỉ sửa metadata, còn eTag bao gồm cả metadata. Link định dạng cũ vẫn kiểm tra eTag; chủ file dùng `/link` để tạo snapshot cTag và lấy Index Link mới sau khi xác minh ID/dung lượng. Snapshot đã có sẽ không tự cập nhật nếu nội dung thay đổi. Việc lấy link không cập nhật eTag dùng cho xóa theo lịch và không gia hạn TTL.
+
+Endpoint lấy URL Microsoft mới, không lưu URL tải tạm thời và không proxy nội dung file. Render chỉ đọc manifest nhỏ và metadata, hoạt động cả ở chế độ `standby`, không cần SQLite đồng bộ hay nhận Telegram updates. Nếu chưa lưu được manifest, thông báo hoàn tất chỉ trả nút Microsoft tạm thời và thử lưu manifest lại theo lịch. Link tải trực tiếp có thời hạn riêng của Microsoft; dùng `/dl` hoặc `/link` để lấy mới khi hết hạn.
 
 Link Render hết hiệu lực khi tới hạn lưu dù collector đang offline; việc xóa thực tế vẫn cần bot hoạt động. Link Microsoft đã được cấp có thời hạn riêng do Microsoft quyết định. File bị sửa, thay thế hoặc chuyển vị trí sẽ không được trả link. Render Free ngủ sau 15 phút không có request; lần bấm đầu có thể cần khoảng một phút để khởi động. Sau redirect, tốc độ tải phụ thuộc OneDrive và mạng người tải.
 

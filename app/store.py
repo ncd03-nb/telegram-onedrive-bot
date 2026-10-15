@@ -20,7 +20,7 @@ class Store:
         columns = {r[1] for r in self.db.execute("PRAGMA table_info(jobs)")}
         for name, declaration in {
             "completed": "REAL", "expires": "REAL", "file_id": "TEXT DEFAULT ''",
-            "etag": "TEXT DEFAULT ''", "file_url": "TEXT DEFAULT ''",
+            "etag": "TEXT DEFAULT ''", "file_url": "TEXT DEFAULT ''", "link_ctag": "TEXT DEFAULT ''",
             "retention": "TEXT DEFAULT ''", "cleanup_error": "TEXT DEFAULT ''",
             "manifest": "INTEGER DEFAULT 0", "links_error": "TEXT DEFAULT ''",
             "backend": "TEXT DEFAULT 'local'", "message_id": "INTEGER",
@@ -81,7 +81,7 @@ class Store:
     def change(self, job_id, **fields):
         if not set(fields).issubset({"state", "bytes", "total", "destination", "error", "url",
                 "completed", "expires", "file_id", "etag", "file_url", "retention", "cleanup_error", "manifest", "links_error",
-                "backend", "message_id", "run_id", "dispatch_at", "phase"}):
+                "backend", "message_id", "run_id", "dispatch_at", "phase", "link_ctag"}):
             raise ValueError("Invalid job fields")
         with self.db:
             self.db.execute("UPDATE jobs SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?", (*fields.values(), job_id))
@@ -109,6 +109,8 @@ class Store:
             # A runner can finish while the controller is offline. Preserve the original TTL.
             self.db.execute("UPDATE jobs SET state='done',url='',bytes=?,total=?,destination=?,completed=?,expires=?,file_id=?,etag=?,retention='armed',manifest=1 WHERE id=? AND owner=? AND backend='actions' AND state IN ('queued','running','interrupted')",
                 (record['size'],record['size'],record['destination'],record['completed'],record['expires'],record['file_id'],record['etag'],record['id'],record['owner']))
+            self.db.execute("UPDATE jobs SET link_ctag=? WHERE id=? AND owner=? AND state='done'",
+                (record.get('link_ctag',''),record['id'],record['owner']))
 
     def clean(self):
         with self.db:

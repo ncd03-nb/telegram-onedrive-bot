@@ -27,7 +27,7 @@ HELP = """Gửi link Google Drive / Dropbox / link tải trực tiếp.
 /status [mã tác vụ] — xem tiến độ
 /cancel <mã tác vụ> — hủy
 /find <từ khóa> — tìm file bot đã upload
-/link <mã tác vụ> — lấy Index Link
+/link <mã tác vụ> — lấy Index Link và link tải trực tiếp mới
 /dl <mã tác vụ> — lấy link tải trực tiếp mới
 /check — kiểm tra quota OneDrive
 /whoami — xem Telegram user ID
@@ -73,9 +73,11 @@ def link_message(job, item, direct_only=False, settings=None):
 
 def link_keyboard(settings, job, item, direct_only=False):
     custom = download_url(settings, job)
-    rows = [[{'text': '⚡ Index Link',
-              'url': custom or item['@microsoft.graph.downloadUrl']}]]
-    return {'inline_keyboard': rows}
+    buttons = []
+    if custom and not direct_only:
+        buttons.append({'text':'⚡ Index Link','url':custom})
+    buttons.append({'text':'⬇ Tải trực tiếp','url':item['@microsoft.graph.downloadUrl']})
+    return {'inline_keyboard': [buttons]}
 
 
 class Bot:
@@ -246,7 +248,7 @@ class Bot:
             if job["file_id"] and item["id"] != job["file_id"]:
                 await self.notify(chat, "File tại vị trí này đã được thay thế; không trả link file khác.")
                 return
-            self.store.change(job["id"], file_url=item["webUrl"], links_error="")
+            job = await self.retention.refresh_link_record(job,item)
             await self.notify_links(chat, job, item, command in {"/dl", "/download"})
         elif command == "/cancel":
             job = self.store.get(args.strip(), owner)
