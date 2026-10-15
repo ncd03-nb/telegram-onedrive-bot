@@ -50,6 +50,8 @@ jobs:
       - name: Download and upload with 15-second Telegram progress
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          HUB_URL: ${{ vars.HUB_URL }}
+          HUB_BOT_ID: onedrive
           ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
@@ -70,7 +72,7 @@ jobs:
             -e JOB_ID -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
             -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
             -e ONEDRIVE_CHUNK_MIB=50 \
-            -e DOWNLOAD_BASE_URL \
+            -e DOWNLOAD_BASE_URL -e HUB_URL -e HUB_BOT_ID \
             -e RESULT_PATH=/result/result.json onedrive-worker python -m app.action_runner
       - name: Store small result for controller recovery
         if: always()

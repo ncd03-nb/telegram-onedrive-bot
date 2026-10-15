@@ -10,3 +10,4 @@ tests
 google-client*.json
 .tools
 screenshots
+cloudflare-failover

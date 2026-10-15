@@ -15,6 +15,7 @@ class Actions:
     def __init__(self, settings):
         self.s = settings
         self.session = None
+        self.before_dispatch = None
         self.base = f"https://api.github.com/repos/{settings.github_repo}"
 
     async def start(self):
@@ -33,6 +34,8 @@ class Actions:
             return await r.json() if r.content_length != 0 and r.status != 204 else {}
 
     async def dispatch(self, job):
+        if self.before_dispatch:
+            await self.before_dispatch()
         # Inputs go through JSON, never interpolation into shell commands.
         return await self.request("POST", "/actions/workflows/copy.yml/dispatches", {
             "ref": self.s.github_ref, "inputs": {
@@ -66,7 +69,7 @@ class Actions:
             location = r.headers["Location"]
         # No GitHub credential is forwarded to signed artifact storage.
         async with self.session.get(location) as r:
-            raw = await r.content.read(131073)
+            raw = await read_limited(r.content, 131072)
             if r.status != 200 or len(raw) > 131072:
                 raise SourceError("Artifact kết quả không hợp lệ.")
         return decode_result(raw, job_id)
@@ -95,6 +98,15 @@ class Actions:
                 # Reconcile after transient connection failures, including controller restart.
                 pass
             await asyncio.sleep(15)
+
+
+async def read_limited(stream, limit):
+    data = bytearray()
+    while True:
+        block = await stream.read(min(65536, limit + 1 - len(data)))
+        if not block: return bytes(data)
+        data.extend(block)
+        if len(data) > limit: raise SourceError('Artifact kết quả vượt kích thước cho phép.')
 
 
 def decode_result(raw, job_id):

@@ -16,6 +16,7 @@ from .source import SourceError, Sources, validate_url
 from .store import Store
 from .telegram import Telegram
 from .transfer import Transfer
+from .failover import notify_result
 
 
 async def run():
@@ -87,6 +88,7 @@ async def run():
         await telegram.close()
         await drive.close()
         store.close()
+        await notify_result(s, job_id)
     return 0 if result['state'] == 'done' else 1
 
 

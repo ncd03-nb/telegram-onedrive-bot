@@ -32,6 +32,9 @@ class Settings:
     github_repo: str = "ncd03-nb/telegram-onedrive-bot"
     github_ref: str = "main"
     download_base_url: str = ""
+    hub_url: str = ""
+    hub_role: str = "docker"
+    hub_bot: str = "onedrive"
 
     @classmethod
     def load(cls):
@@ -41,6 +44,9 @@ class Settings:
             raise ValueError("Cần TELEGRAM_BOT_TOKEN và ALLOWED_USER_IDS hợp lệ trong .env.")
         s = cls(token=token, users=users,
                 mode=os.environ.get("BOT_MODE", "polling"),
+                hub_url=os.environ.get("HUB_URL", "").rstrip("/"),
+                hub_role=os.environ.get("HUB_ROLE", "docker"),
+                hub_bot=os.environ.get("HUB_BOT_ID", "onedrive"),
                 port=int(os.environ.get("PORT", "8080")),
                 data_dir=Path(os.environ.get("DATA_DIR", "/data")),
                 config=Path(os.environ.get("RCLONE_CONFIG", "/config/rclone.conf")),
@@ -70,7 +76,7 @@ class Settings:
             raise ValueError("ACTIONS_REPO không hợp lệ.")
         if s.transfer_backend == "actions" and s.mode != "standby" and not s.github_token:
             raise ValueError("Cần ACTIONS_DISPATCH_TOKEN để chạy GitHub Actions.")
-        if s.mode not in {"polling", "webhook", "standby"}:
+        if s.mode not in {"polling", "webhook", "standby", "hub"}:
             raise ValueError("BOT_MODE phải là polling, webhook hoặc standby.")
         if not 5 <= s.onedrive_chunk_mib <= 50 or s.onedrive_chunk_mib % 5:
             raise ValueError("ONEDRIVE_CHUNK_MIB phải là bội số 5 từ 5 đến 50 MiB.")
@@ -80,6 +86,10 @@ class Settings:
             raise ValueError("ONEDRIVE_DEST không hợp lệ.")
         if s.mode == "webhook" and (not s.webhook_url.startswith("https://") or not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", s.webhook_secret)):
             raise ValueError("Webhook cần WEBHOOK_URL HTTPS và WEBHOOK_SECRET 32–256 ký tự.")
+        from .failover import validate_hub
+        validate_hub(s)
+        if s.mode == 'hub' and (not s.hub_url or s.transfer_backend != 'actions'):
+            raise ValueError('BOT_MODE=hub cần HUB_URL và TRANSFER_BACKEND=actions.')
         s.data_dir.mkdir(parents=True, exist_ok=True)
         for env, path in [("RCLONE_CONFIG_B64", s.config), ("GOOGLE_TOKEN_B64", s.google_token)]:
             if os.environ.get(env) and not path.exists():

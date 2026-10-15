@@ -10,3 +10,5 @@ google-client*.json
 *.zip
 .tools/
 screenshots/
+node_modules/
+.wrangler/

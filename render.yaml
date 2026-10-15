@@ -7,7 +7,15 @@ services:
     healthCheckPath: /health
     envVars:
       - key: BOT_MODE
-        value: standby
+        value: hub
+      - key: HUB_ROLE
+        value: render
+      - key: HUB_BOT_ID
+        value: onedrive
+      - key: HUB_URL
+        sync: false
+      - key: ACTIONS_DISPATCH_TOKEN
+        sync: false
       - key: DOWNLOAD_BASE_URL
         value: https://telegram-onedrive-standby.onrender.com
       - key: TRANSFER_BACKEND

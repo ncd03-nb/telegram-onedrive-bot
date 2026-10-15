@@ -18,6 +18,7 @@ from .retention import Retention
 from .actions import Actions
 from .progress import Progress
 from .downloads import Downloads, download_url
+from .failover import Failover
 
 log = logging.getLogger("bot")
 LOCAL_TZ = timezone(timedelta(hours=7))
@@ -99,6 +100,7 @@ class Bot:
         self.check_lock = asyncio.Lock()
         self.last_check = 0
         self.lock = None
+        self.hub = Failover(self) if settings.mode == 'hub' else None
 
     def acquire_lock(self):
         self.lock = (self.s.data_dir / "instance.lock").open("a+b")
@@ -117,6 +119,11 @@ class Bot:
     async def start(self, app):
         self.acquire_lock()
         self.store.recover()
+        if self.hub:
+            # Graph stays available for Index Link even when this host is passive.
+            await self.drive.start()
+            self.tasks = [asyncio.create_task(self.hub.run())]
+            return
         if self.s.mode == "standby":
             if self.s.download_base_url:
                 await self.drive.start()
@@ -146,7 +153,7 @@ class Bot:
         if self.active_task:
             self.active_task.cancel()
             await asyncio.gather(self.active_task, return_exceptions=True)
-        if self.s.mode != "standby":
+        if self.s.mode != "standby" and not self.hub:
             await self.sources.close()
             await self.telegram.close()
             await self.actions.close()
@@ -154,6 +161,23 @@ class Bot:
         self.store.close()
         if self.lock:
             self.lock.close()
+
+    async def hub_activate(self):
+        await self.telegram.start()
+        await self.sources.start()
+        await self.actions.start()
+        return [asyncio.create_task(self.updates()), asyncio.create_task(self.worker()),
+                asyncio.create_task(self.collector())]
+
+    async def hub_deactivate(self):
+        if self.sources.session: await self.sources.close()
+        if self.telegram.session: await self.telegram.close()
+        await self.actions.close()
+        self.active_id = None
+
+    async def wake(self, request):
+        if not self.hub: raise web.HTTPNotFound()
+        return await self.hub.wake(request)
 
     def accept(self, update):
         message = update.get("message", {})
@@ -324,7 +348,7 @@ class Bot:
                     raise SourceError('Kết quả Actions không khớp owner.')
                 self.store.change(job['id'], state='done',url='',bytes=record['size'],total=record['size'],
                     destination=record['destination'],completed=record['completed'],expires=record['expires'],
-                    file_id=record['file_id'],etag=record['etag'],retention='armed' if record['etag'] else 'pending',
+                    file_id=record['file_id'],etag=record['etag'],link_ctag=record.get('link_ctag',''),retention='armed' if record['etag'] else 'pending',
                     manifest=int(bool(result.get('manifest'))),cleanup_error=result.get('cleanup_error',''),phase='completed')
                 if not result.get('links_notified'):
                     try:
@@ -445,6 +469,7 @@ class Bot:
         return web.json_response({"status": "ok" if healthy else "degraded", "mode": self.s.mode,
             "transfer_backend": self.s.transfer_backend,
             "custom_downloads": bool(self.s.download_base_url),
+            "failover": self.hub.status() if self.hub else None,
             "actions_configured": bool(self.s.github_token)}, status=200 if healthy else 503)
 
     async def webhook(self, request):
@@ -469,6 +494,7 @@ def create_app(settings):
     app = web.Application(client_max_size=256 * 1024)
     app.router.add_get("/health", bot.health)
     app.router.add_post("/telegram", bot.webhook)
+    app.router.add_post("/wake", bot.wake)
     app.router.add_get("/0:/{capability}/{name}", bot.downloads.handle)
     app.on_startup.append(bot.start)
     app.on_cleanup.append(bot.close)
