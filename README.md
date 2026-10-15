@@ -4,7 +4,7 @@ Bot [@odrivegay_bot](https://t.me/odrivegay_bot) nhận link Google Drive, Dropb
 
 Bot dùng **một tin tiến độ riêng** và cập nhật nó trong suốt tác vụ; chỉ khi hoàn tất mới gửi **một tin kết quả reply lệnh gốc**. Runner cập nhật khoảng **2 giây/lần khi có thay đổi**, hiển thị %, dung lượng, tốc độ và thời gian. Khi đứng ở một bước, tin nhắn có heartbeat khoảng 10 giây; bot tôn trọng `retry_after` của Telegram. Tin kết quả hiện tên file và hai nút **Index Link / tải trực tiếp**.
 
-File mới upload bằng multipart 8 luồng × 16 MiB, giới hạn bộ nhớ 128 MiB cho các phần đang gửi. Runner tải nguồn xuống ổ tạm, kiểm tra checksum nguồn rồi upload. Bot chỉ gửi link sau khi metadata Archive xác nhận MD5/kích thước và tải Range thành công. File Archive là **công khai**.
+File mới upload bằng multipart 8 luồng × 16 MiB, giới hạn bộ nhớ 128 MiB cho các phần đang gửi. Runner tải nguồn xuống ổ tạm, kiểm tra checksum nguồn rồi upload. Tiến độ toàn tác vụ gồm 0–25% tải nguồn, 25–95% gửi dữ liệu, 95% chờ Archive nhập và xác minh; chỉ lên 100% khi link tải đã kiểm tra thành công. Bot chỉ gửi link sau khi metadata Archive xác nhận MD5/kích thước và tải Range thành công. File Archive là **công khai**.
 
 File được đặt lịch xóa sau **12 giờ từ lúc upload hoàn tất**. Cloudflare kiểm tra identifier, tên, MD5 và kích thước trước khi gửi yêu cầu xóa. Archive nhập/xóa file bất đồng bộ nên không hứa xóa tức thời đúng giây hết hạn. Index Link ngừng phục vụ khi hết hạn; link Archive công khai vẫn dùng được cho đến khi Archive xử lý xóa. File OneDrive cũ giữ nguyên link và lịch xóa bảo vệ bằng eTag.
 

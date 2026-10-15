@@ -257,8 +257,8 @@ export class Controller {
   if(!j.archive||!new RegExp('^odrivegay-'+j.id+'-[a-f0-9]{16}$').test(j.archive.identifier))throw new BotError('Archive item không hợp lệ.');
   const r=await fetch('https://archive.org/metadata/'+j.archive.identifier,{redirect:'manual',signal:AbortSignal.timeout(15000)});
   if(!r.ok)throw new BotError('Chưa đọc được metadata Archive.',60);
-  const data=JSON.parse(new TextDecoder().decode(await limited(r,1024**2))),file=data.files?.find(f=>f.name===j.archive.name);
-  if(!file){if(allowMissing&&data.metadata?.identifier===j.archive.identifier)return null;throw new BotError('Archive đang nhập file; hãy thử lại.',60);}
+  const data=JSON.parse(new TextDecoder().decode(await limited(r,1024**2))),files=Array.isArray(data.files)?data.files:null,file=files?.find(f=>f.name===j.archive.name);
+  if(!file){if(allowMissing&&files&&data.metadata?.identifier===j.archive.identifier)return null;throw new BotError('Archive đang nhập file; hãy thử lại.',60);}
   if(Number(file.size)!==j.total||file.md5!==j.archive.md5)throw new BotError('File Archive đã thay đổi; không tự xóa.');return file;
  }
  async archiveCleanup(j){
@@ -267,7 +267,7 @@ export class Controller {
   const c=this.config();if(!c.archive_access||!c.archive_secret)throw new BotError('Archive credentials chưa có.',300);
   let url='https://s3.us.archive.org/'+j.archive.identifier+'/'+encodeURIComponent(j.archive.name);
   for(let attempt=0;attempt<5;attempt++){
-   const r=await fetch(url,{method:'DELETE',redirect:'manual',headers:{Authorization:'LOW '+c.archive_access+':'+c.archive_secret,'x-archive-keep-old-version':'0','x-archive-queue-derive':'0'},signal:AbortSignal.timeout(20000)});
+   const r=await fetch(url,{method:'DELETE',redirect:'manual',headers:{Authorization:'LOW '+c.archive_access+':'+c.archive_secret,'x-archive-interactive-priority':'1','x-archive-keep-old-version':'0','x-archive-queue-derive':'0'},signal:AbortSignal.timeout(20000)});
    if([307,308].includes(r.status)){const next=new URL(r.headers.get('Location'),url);if(next.protocol!=='https:'||!(next.hostname==='archive.org'||next.hostname.endsWith('.archive.org'))||next.username||next.password||next.port)throw new BotError('Archive redirect không hợp lệ.');url=next.href;continue;}
    if(![200,204,404].includes(r.status))throw new BotError('Archive chưa nhận yêu cầu xóa.',300);
    j.cleanup_retry=now()+300;j.cleanup_error='Archive đang xử lý xóa file.';this.save(j);return;

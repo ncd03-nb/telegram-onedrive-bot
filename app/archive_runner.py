@@ -30,7 +30,8 @@ async def wait_ready(client,file,identifier,progress,timeout=1500):
                 if len(raw)>1024**2:raise ArchiveError('Archive metadata too large')
                 obj=json.loads(raw)
             else:obj={}
-        found=next((v for v in obj.get('files',[]) if v.get('name')==file['name']),None)
+        files=obj.get('files');files=files if isinstance(files,list) else []
+        found=next((v for v in files if v.get('name')==file['name']),None)
         if found:
             if int(found.get('size',-1))!=file['size'] or found.get('md5')!=file['md5']:
                 raise SourceError('Checksum/dung lượng file Archive không khớp.')

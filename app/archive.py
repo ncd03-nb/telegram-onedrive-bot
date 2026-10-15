@@ -69,7 +69,7 @@ class Archive:
             streamed=sent is not None and isinstance(data,bytes)
             async with self.session.request(method,url,data=chunks() if streamed else data,allow_redirects=False,
                     expect100=method=='PUT' and isinstance(data,bytes),
-                    headers={'Authorization':self.auth,**({'Content-Length':str(len(data))} if streamed else {}),**(headers or {})}) as r:
+                    headers={'Authorization':self.auth,'x-archive-interactive-priority':'1',**({'Content-Length':str(len(data))} if streamed else {}),**(headers or {})}) as r:
                 if r.status in (307,308):
                     url=safe_url(urljoin(url,r.headers.get('Location','')));self.redirects+=1;continue
                 raw=await r.content.read(1048577)
