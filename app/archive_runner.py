@@ -50,7 +50,7 @@ async def run():
     jid=os.environ['JOB_ID'];owner=int(os.environ['JOB_OWNER']);chat=int(os.environ['JOB_CHAT']);message=int(os.environ['JOB_MESSAGE_ID'])
     if not re.fullmatch(r'[a-f0-9]{12}',jid) or owner not in s.users or chat!=owner or message<=0:raise ValueError('Invalid workflow identity')
     tg=Telegram(s.token);sources=Sources(s);await tg.start();await sources.start()
-    progress=Progress(tg,chat,message,jid);progress.phase='Đang tải file nguồn';await progress.start()
+    progress=Progress(tg,chat,message,jid);progress.phase='Đang tải file nguồn';progress.percent_span=25;await progress.start()
     result={'id':jid,'owner':owner,'state':'failed','storage':'archive'}
     identifier='odrivegay-'+jid+'-'+uuid.uuid4().hex[:16]
     try:
@@ -70,11 +70,14 @@ async def run():
                     if not count or meta['size'] is not None and count!=meta['size']:raise SourceError('File nguồn chưa tải đủ.')
                     if meta.get('md5') and md5.hexdigest().lower()!=meta['md5'].lower():raise SourceError('Checksum file Drive không khớp.')
                 file={'path':str(path),'name':name,'size':count,'md5':md5.hexdigest(),'sha256':sha.hexdigest()}
-                progress.phase='Đang upload Internet Archive — 8 luồng';progress.started=time.monotonic();await progress.update(0,count,name)
-                async def uploaded(done,total):await progress.update(done,total,name)
+                progress.phase='Đang khởi tạo upload Internet Archive';progress.percent_base=25;progress.percent_span=70;await progress.update(0,count,name);await progress.render()
+                async def uploaded(done,total):
+                    progress.phase='Đang gửi dữ liệu lên Internet Archive — 8 luồng'
+                    await progress.update(done,total,name)
                 async with Archive(os.environ['IA_ACCESS_KEY'],os.environ['IA_SECRET_KEY'],workers=8,part_mib=16) as archive:
                     info=await archive.multipart(file,identifier,uploaded,collection='opensource_media')
                     progress.phase='Internet Archive đang xử lý file — chờ link tải'
+                    progress.percent_base=95;progress.percent_span=0;await progress.render()
                     # Persist committed identity even if ingestion or Telegram later fails.
                     completed=time.time()
                     record={'version':1,'id':jid,'owner':owner,'chat':chat,'destination':s.destination+'/'+jid+'/'+name,

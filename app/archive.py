@@ -56,15 +56,20 @@ class Archive:
     async def __aexit__(self, *args):
         await self.session.close()
 
-    async def request(self, method, url, data=None, headers=None):
+    async def request(self, method, url, data=None, headers=None, sent=None):
         original=urlsplit(safe_url(url));route_key=urlunsplit(original._replace(query='',fragment=''))
         if route_key in self.routes:
             target=urlsplit(self.routes[route_key]);url=urlunsplit(target._replace(query=original.query))
         for _ in range(5):
             safe_url(url)
-            async with self.session.request(method,url,data=data,allow_redirects=False,
-                    expect100=method=='PUT' and isinstance(data,bytes) and len(data)>=5*1024**2,
-                    headers={'Authorization':self.auth,**(headers or {})}) as r:
+            async def chunks():
+                for start in range(0,len(data),1024**2):
+                    chunk=data[start:start+1024**2];yield chunk
+                    await sent(start+len(chunk))
+            streamed=sent is not None and isinstance(data,bytes)
+            async with self.session.request(method,url,data=chunks() if streamed else data,allow_redirects=False,
+                    expect100=method=='PUT' and isinstance(data,bytes),
+                    headers={'Authorization':self.auth,**({'Content-Length':str(len(data))} if streamed else {}),**(headers or {})}) as r:
                 if r.status in (307,308):
                     url=safe_url(urljoin(url,r.headers.get('Location','')));self.redirects+=1;continue
                 raw=await r.content.read(1048577)
@@ -93,7 +98,9 @@ class Archive:
             data=await asyncio.to_thread(path.read_bytes)
             digest=hashlib.md5(data)
             if digest.hexdigest()!=file['md5']:raise ArchiveError('Source checksum changed')
-            await self.request('PUT',url,data,{**meta,'Content-Type':'application/octet-stream','Content-MD5':base64.b64encode(digest.digest()).decode()})
+            async def sent(count):
+                if progress:await progress(count,size)
+            await self.request('PUT',url,data,{**meta,'Content-Type':'application/octet-stream','Content-MD5':base64.b64encode(digest.digest()).decode()},sent=sent)
             if progress:await progress(size,size)
             return {'identifier':identifier,'url':'https://archive.org/download/'+identifier+'/'+quote(path.name),'parts':1,'part_mib':self.part_bytes//1024**2,'workers':1}
         started=time.monotonic()
@@ -103,7 +110,7 @@ class Archive:
         if not uid or len(uid)>1024:raise ArchiveError('IAS3 did not return an upload ID')
         query='uploadId='+quote(uid,safe='')
         count=(size+self.part_bytes-1)//self.part_bytes
-        queue=iter(range(1,count+1));parts={};done=0;committed=False
+        queue=iter(range(1,count+1));parts={};inflight={};done=0;committed=False
         def load(number):
             with path.open('rb') as f:
                 f.seek((number-1)*self.part_bytes)
@@ -113,16 +120,20 @@ class Archive:
             for number in queue:
                 data=await asyncio.to_thread(load,number)
                 digest=hashlib.md5(data)
+                async def sent(count):
+                    inflight[number]=max(inflight.get(number,0),count)
+                    if progress:await progress(sum(inflight.values()),size)
                 for attempt in range(3):
                     try:
                         await self.request('PUT',url+'?partNumber='+str(number)+'&'+query,data,
-                            {'Content-Type':'application/octet-stream','Content-MD5':base64.b64encode(digest.digest()).decode()})
+                            {'Content-Type':'application/octet-stream','Content-MD5':base64.b64encode(digest.digest()).decode()},sent=sent)
                         break
                     except (ArchiveError,aiohttp.ClientError,TimeoutError):
                         if attempt==2:raise
                         await asyncio.sleep(2**(attempt+1))
                 parts[number]=digest.hexdigest();done+=len(data)
-                if progress:await progress(done,size)
+                inflight[number]=len(data)
+                if progress:await progress(sum(inflight.values()),size)
         try:
             async with asyncio.TaskGroup() as group:
                 for _ in range(min(self.workers,count)):group.create_task(worker())

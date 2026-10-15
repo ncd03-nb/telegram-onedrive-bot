@@ -45,7 +45,7 @@ class MultipartTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_part_etags_use_quoted_md5_in_sorted_completion(self):
         seen=[]
         class Fake(Archive):
-            async def request(self,method,url,data=None,headers=None):
+            async def request(self,method,url,data=None,headers=None,**kwargs):
                 seen.append((method,url,data,headers))
                 if url.endswith('?uploads'):return b'<InitiateMultipartUploadResult><UploadId>fixture</UploadId></InitiateMultipartUploadResult>'
                 await asyncio.sleep(0)
@@ -67,7 +67,7 @@ class MultipartTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_completion_aborts_only_its_multipart_upload(self):
         seen=[]
         class Fake(Archive):
-            async def request(self,method,url,data=None,headers=None):
+            async def request(self,method,url,data=None,headers=None,**kwargs):
                 seen.append((method,url))
                 if url.endswith('?uploads'):return b'<Result><UploadId>test/id</UploadId></Result>'
                 if method=='POST':raise ArchiveError('Test completion failure')

@@ -14,9 +14,15 @@ class Progress:
         self.last_signature = None
         self.last_render = 0
         self.phase = None
+        self.percent_base, self.percent_span = 0, 100
+
+    def percent(self, finished=False):
+        if finished:return 100
+        fraction=min(1,self.count/self.total) if self.total else 0
+        return min(99,self.percent_base+self.percent_span*fraction)
 
     def text(self, finished=False):
-        pct = 100 if finished else (min(99, self.count * 100 / self.total) if self.total else 0)
+        pct = self.percent(finished)
         phase = "Hoàn tất" if finished else (self.phase or ("Đang xác minh OneDrive" if self.total is not None and self.count >= self.total else "Đang tải → upload OneDrive"))
         total = f"{self.total / 1024**3:.2f} GiB" if self.total is not None else "chưa biết dung lượng"
         elapsed = max(0.1,time.monotonic()-self.started)
@@ -30,7 +36,7 @@ class Progress:
         self.count, self.total, self.destination = count, total, dest
 
     async def render(self, text=None):
-        signature=(self.count,self.total,self.destination,self.finished,text,self.phase)
+        signature=(self.count,self.total,self.destination,self.finished,text,self.phase,self.percent_base,self.percent_span)
         if signature==self.last_signature and time.monotonic()-self.last_render<10:return
         delivered = False
         try:
@@ -41,7 +47,7 @@ class Progress:
             # Delivery failures must not abort a multi-GB upload or leak an API URL.
             pass
         # Useful in Actions logs even if Telegram cannot be reached. Never log URLs or secrets.
-        pct = 100 if self.finished else (min(99, self.count * 100 / self.total) if self.total else 0)
+        pct = self.percent(self.finished)
         print(f"Progress: {pct:.1f}% | bytes={self.count} | total={self.total} | "
               f"elapsed={int(time.monotonic() - self.started)}s | telegram_edit={'ok' if delivered else 'failed'}", flush=True)
 
