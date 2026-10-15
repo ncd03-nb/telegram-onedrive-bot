@@ -39,6 +39,8 @@ def main():
         expected = local.stdout.decode().split()[0].lower()
         cases = [('baseline', 50, False), ('large-chunk', 200 if legacy else 55, False),
                  ('large-http1', 200 if legacy else 55, True), ('baseline-http1', 50, True)]
+        if os.environ.get('BENCH_PROFILE') == 'http1':
+            cases = [case for case in cases if case[2]]
         for label, chunk, http1 in cases:
             dest = prefix + '/' + label + '.bin'
             result = {'case': label, 'chunk_mib': chunk, 'http1': http1, 'bytes': size}

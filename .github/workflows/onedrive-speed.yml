@@ -1,6 +1,19 @@
 name: Measure OneDrive upload
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        type: choice
+        options:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+        default: ubuntu-latest
+      profile:
+        type: choice
+        options:
+          - all
+          - http1
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -8,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   measure:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +35,10 @@ jobs:
       - name: Measure sequential upload variants and recycle test files
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          BENCH_PROFILE: ${{ inputs.profile }}
         run: |
           docker run --rm --name onedrive-speed \
-            -v "$RUNNER_TEMP/od-speed:/result" -e RCLONE_CONFIG_B64 \
+            -v "$RUNNER_TEMP/od-speed:/result" -e RCLONE_CONFIG_B64 -e BENCH_PROFILE \
             onedrive-worker python scripts/benchmark_onedrive.py
       - uses: actions/upload-artifact@v4
         if: always()
