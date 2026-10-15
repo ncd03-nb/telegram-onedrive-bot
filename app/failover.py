@@ -220,14 +220,14 @@ class Failover:
         return {'role':self.role,'leader':self.active,'connected':self.connected,'epoch':self.epoch,'retired':self.retired}
 
 
-async def notify_result(settings, job_id):
+async def notify_result(settings, job_id, result=None):
     if not settings.hub_url:return
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20),trust_env=False) as session:
             for attempt in range(3):
                 try:
                     async with session.post(settings.hub_url+'/api/'+settings.hub_bot+'/result',
-                            json={'id':job_id},headers={'Authorization':'Bearer '+host_key(settings.token)}) as r:
+                            json={'id':job_id,**({'result':result} if result else {})},headers={'Authorization':'Bearer '+host_key(settings.token)}) as r:
                         if r.status==200:return
                 except (aiohttp.ClientError,TimeoutError):pass
                 await asyncio.sleep(2**attempt)

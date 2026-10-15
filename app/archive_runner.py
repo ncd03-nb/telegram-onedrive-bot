@@ -84,6 +84,8 @@ async def run():
                         'size':count,'completed':completed,'expires':completed+43200,'file_id':identifier,'etag':file['md5'],'link_ctag':file['sha256']}
                     result.update(state='done',record=record,manifest=True,archive={'identifier':identifier,'name':name,'md5':file['md5'],'sha256':file['sha256'],'url':info['url']},metrics=info,links_notified=False)
                     write_result(Path(os.environ.get('RESULT_PATH','result.json')),result,s.token)
+                    # Arm Cloudflare retention immediately after commit, before long ingestion waits.
+                    await notify_result(s,jid,json.loads(Path(os.environ.get('RESULT_PATH','result.json')).read_text(encoding='utf-8')))
                     await wait_ready(archive,file,identifier,progress)
                 await progress.close(finished=True)
     except asyncio.CancelledError:
