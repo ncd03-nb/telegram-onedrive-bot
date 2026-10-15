@@ -44,6 +44,18 @@ class Snapshots(unittest.TestCase):
         restored=self.b.get(job['id'],123)
         self.assertEqual((restored['expires'],restored['etag'],restored['file_id']), (123456789,'original','id'))
 
+    def test_payload_scan_and_download_records_survive_empty_render_disk(self):
+        for store in (self.a,self.b):
+            store.db.executescript('CREATE TABLE scans(id TEXT PRIMARY KEY,owner INTEGER,url TEXT,metadata TEXT,created REAL); CREATE TABLE outputs(id TEXT PRIMARY KEY,owner INTEGER,files TEXT);')
+        files=json.dumps([{'id':'google-file-id','name':'payload.zip','partitions':['boot','init_boot']}])
+        with self.a.db:
+            self.a.db.execute('INSERT INTO scans VALUES(?,?,?,?,?)',('rom-id',123,'https://example.org/ota','[]',123456))
+            self.a.db.execute('INSERT INTO outputs VALUES(?,?,?)',('job-id',123,files))
+        import_state(self.b.db,export_state(self.a.db)[0])
+        self.assertEqual(self.b.db.execute('SELECT files FROM outputs WHERE id=? AND owner=?',('job-id',123)).fetchone()[0],files)
+        self.assertEqual(self.b.db.execute('SELECT COUNT(*) FROM outputs WHERE owner=999').fetchone()[0],0)
+        self.assertEqual(self.b.db.execute('SELECT url FROM scans WHERE id=?',('rom-id',)).fetchone()[0],'https://example.org/ota')
+
     def test_missing_table_and_injected_column_leave_database_untouched(self):
         self.b.add(1,1,1,'keep')
         original=export_state(self.b.db)
