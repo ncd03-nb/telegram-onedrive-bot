@@ -77,7 +77,7 @@ class Snapshots(unittest.TestCase):
 
 class Dispatch(unittest.IsolatedAsyncioTestCase):
     async def test_external_post_only_after_durable_intent(self):
-        actions=Actions(SimpleNamespace(github_repo='a/b',github_ref='main',max_bytes=1024**3,retention_hours=12))
+        actions=Actions(SimpleNamespace(token='test-only',github_repo='a/b',github_ref='main',max_bytes=1024**3,retention_hours=12))
         events=[]
         async def guard():events.append('checkpoint')
         async def request(*args,**kwargs):events.append('dispatch');return {}

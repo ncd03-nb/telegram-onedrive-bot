@@ -7,19 +7,22 @@ on:
         required: true
         type: string
       source_url:
-        required: true
+        default: ''
+        type: string
+      job_payload:
+        default: ''
         type: string
       requested_name:
         default: ''
         type: string
       owner:
-        required: true
+        default: '0'
         type: string
       chat:
-        required: true
+        default: '0'
         type: string
       message_id:
-        required: true
+        default: '0'
         type: string
       max_file_gib:
         default: '12'
@@ -56,6 +59,7 @@ jobs:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
           JOB_ID: ${{ inputs.job_id }}
+          JOB_PAYLOAD: ${{ inputs.job_payload }}
           JOB_SOURCE_URL: ${{ inputs.source_url }}
           JOB_REQUESTED_NAME: ${{ inputs.requested_name }}
           JOB_OWNER: ${{ inputs.owner }}
@@ -69,7 +73,7 @@ jobs:
             -v "$RUNNER_TEMP/od-config:/config" -v "$RUNNER_TEMP/od-data:/data" \
             -v "$RUNNER_TEMP/od-result:/result" \
             -e TELEGRAM_BOT_TOKEN -e ALLOWED_USER_IDS -e RCLONE_CONFIG_B64 -e GOOGLE_TOKEN_B64 \
-            -e JOB_ID -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
+            -e JOB_ID -e JOB_PAYLOAD -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
             -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
             -e ONEDRIVE_CHUNK_MIB=50 \
             -e DOWNLOAD_BASE_URL -e HUB_URL -e HUB_BOT_ID \
@@ -89,4 +93,5 @@ jobs:
           HUB_BOT_ID: onedrive
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           JOB_ID: ${{ inputs.job_id }}
+          RESULT_PATH: ${{ runner.temp }}/od-result/result.json
         run: python scripts/notify_controller.py

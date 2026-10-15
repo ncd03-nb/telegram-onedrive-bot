@@ -20,7 +20,7 @@ def request(url,body=None,headers=None):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('action',choices=['configure-docker','set-webhook','status','probe'])
+    parser.add_argument('action',choices=['configure-docker','set-webhook','status','probe','prepare','activate','audit'])
     parser.add_argument('--repo',type=Path,default=Path.cwd())
     parser.add_argument('--bot',choices=['onedrive','payload'],required=True)
     parser.add_argument('--hub',default='https://telegram-bot-failover.der-templates.workers.dev')
@@ -34,6 +34,8 @@ def main():
         (root/'config/render-hub.env').write_text(''.join(k+'='+('render' if k=='HUB_ROLE' else v)+'\n' for k,v in values.items()),encoding='utf-8')
         print('Configured Docker and public Render hub settings:',args.bot);return
     status=request(origin+'/api/'+args.bot+'/status',{},host_headers)
+    if args.action in {'prepare','activate','audit'}:
+        print(json.dumps(request(origin+'/api/'+args.bot+'/'+args.action,{},host_headers)));return
     if args.action=='set-webhook':
         if not status['initialized'] or status['leader']!='docker':raise SystemExit('Refused cutover: Docker must first synchronize its existing state.')
         response=request('https://api.telegram.org/bot'+token+'/setWebhook',{

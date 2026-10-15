@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import {Miniflare} from 'miniflare';
 import {createHash} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
+import {build} from 'esbuild';
 
 test('durable webhook queue, atomic checkpoint, fencing and callbacks',async()=>{
  const config={onedrive:{host_key:'host',webhook_key:'webhook',users:[123],username:'testbot',groups:false,public:false},
  payload:{host_key:'payload',webhook_key:'payloadhook',users:[],username:'payloadbot',groups:true,public:true,slash_only:true}};
- const mf=new Miniflare({modules:true,scriptPath:new URL('../src/index.mjs',import.meta.url).pathname.replace(/^\/(\w:)/,'$1'),
+ const bundle=await build({entryPoints:[new URL('../src/index.mjs',import.meta.url).pathname.replace(/^\/(\w:)/,'$1')],bundle:true,format:'esm',write:false,external:['cloudflare:workers']});
+ const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,
  compatibilityDate:'2026-08-01',durableObjects:{BOT_STATE:{className:'BotState',useSQLite:true}},bindings:{BOTS_CONFIG:JSON.stringify(config)}});
  const call=async(path,body,key='host')=>mf.dispatchFetch('https://hub'+path,{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body)});
  const telegram=async(bot,body,key)=>mf.dispatchFetch('https://hub/telegram/'+bot,{method:'POST',headers:{'X-Telegram-Bot-Api-Secret-Token':key,'Content-Type':'application/json'},body:JSON.stringify(body)});

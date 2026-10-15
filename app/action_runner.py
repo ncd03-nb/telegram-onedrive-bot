@@ -17,9 +17,11 @@ from .store import Store
 from .telegram import Telegram
 from .transfer import Transfer
 from .failover import notify_result
+from .exchange import load_job_env, write_result
 
 
 async def run():
+    load_job_env()
     s = Settings.load()
     job_id = os.environ['JOB_ID']
     owner, chat = int(os.environ['JOB_OWNER']), int(os.environ['JOB_CHAT'])
@@ -83,7 +85,7 @@ async def run():
     finally:
         output = Path(os.environ.get('RESULT_PATH', 'result.json'))
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(result), encoding='utf-8')
+        write_result(output,result,s.token)
         await sources.close()
         await telegram.close()
         await drive.close()

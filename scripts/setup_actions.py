@@ -36,8 +36,8 @@ def main():
         except urllib.error.HTTPError as e:
             raise SystemExit(f'GitHub HTTP {e.code}; token needs repo Actions/secrets permissions.') from None
     repo = api('GET', '')
-    if repo.get('full_name') != args.repo or not repo.get('private'):
-        raise SystemExit('Expected private bot repo; refused to configure another target.')
+    if repo.get('full_name') != args.repo:
+        raise SystemExit('Unexpected bot repo; refused to configure another target.')
     env_path = Path('.env')
     lines = env_path.read_text(encoding='utf-8-sig').splitlines()
     env = dict(x.split('=', 1) for x in lines if x and not x.startswith('#') and '=' in x)

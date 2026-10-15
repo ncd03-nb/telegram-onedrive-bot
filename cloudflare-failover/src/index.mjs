@@ -1,5 +1,7 @@
 import {DurableObject} from 'cloudflare:workers';
 import {grant,freshState,LEASE_MS,authorized} from './lease.mjs';
+import {Controller} from './controller.mjs';
+import {BotError} from './services.mjs';
 
 const reply=(obj,status=200)=>Response.json(obj,{status,headers:{'Cache-Control':'no-store'}});
 function bots(env){return JSON.parse(env.BOTS_CONFIG);}
@@ -18,8 +20,13 @@ function accepts(update,config){
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(request.method==='GET'&&url.pathname==='/health')return reply({ok:true,service:'telegram-bot-failover',lease_seconds:60});
-    const match=/^\/(telegram|api)\/(onedrive|payload)(?:\/(tick|save|release|result|status))?$/.exec(url.pathname);
+    if(request.method==='GET'&&url.pathname==='/health'){
+      const states=await Promise.all(['onedrive','payload'].map(async bot=>{const response=await env.BOT_STATE.get(env.BOT_STATE.idFromName(bot)).fetch(new Request('https://state/status',{method:'POST',headers:{'Content-Type':'application/json','X-Bot':bot},body:'{}'}));const obj=await response.json();return [bot,obj.leader||'waiting'];}));
+      return reply({ok:true,service:'telegram-cloud-controller',controllers:Object.fromEntries(states)});
+    }
+    const download=/^\/0:\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    if(download&&request.method==='GET')return env.BOT_STATE.get(env.BOT_STATE.idFromName('onedrive')).fetch(new Request('https://state/index',{method:'POST',headers:{'Content-Type':'application/json','X-Bot':'onedrive'},body:JSON.stringify({capability:download[1],name:decodeURIComponent(download[2])})}));
+    const match=/^\/(telegram|api)\/(onedrive|payload)(?:\/(tick|save|release|result|status|prepare|activate|audit))?$/.exec(url.pathname);
     if(!match)return reply({error:'not found'},404);
     const [,route,bot,action]=match,config=bots(env)[bot];
     if(!config)return reply({error:'not found'},404);
@@ -49,11 +56,13 @@ export class BotState extends DurableObject {
     this.sql.exec('CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY,json TEXT NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY,payload TEXT,done INTEGER DEFAULT 0,created INTEGER)');
     this.sql.exec('INSERT OR IGNORE INTO meta VALUES (1,?)',JSON.stringify(freshState()));
+    this.controller=new Controller(this);
   }
   state(){return JSON.parse(this.sql.exec('SELECT json FROM meta WHERE id=1').one().json);}
   persist(state){this.sql.exec('UPDATE meta SET json=? WHERE id=1',JSON.stringify(state));}
   pending(){return [...this.sql.exec('SELECT id,payload FROM events WHERE done=0 ORDER BY created LIMIT 10')];}
   async schedule(){
+    if(this.controller.mode()==='cloudflare')return this.controller.schedule();
     const s=this.state(),now=Date.now(),pending=this.pending().length;
     let next=s.cleanupAt?Math.max(now+1000,s.cleanupAt):null;
     if(pending){const check=s.leader?.until>now?s.leader.until+1000:now+1000;next=Math.min(next??Infinity,check);}
@@ -65,10 +74,22 @@ export class BotState extends DurableObject {
   async fetch(request){
     const action=new URL(request.url).pathname.slice(1),body=await request.json(),now=Date.now();
     let s=this.state();s.bot=request.headers.get('X-Bot')||s.bot;
+    if(!this.state().bot)this.persist(s);
+    if(action==='prepare'||action==='activate'){
+      try{return reply(await this.controller[action]());}catch(error){return reply({error:error instanceof BotError?error.message:'Controller initialization failed'},409);}
+    }
+    if(action==='audit')return reply({controller:this.controller.summary(),jobs:this.controller.jobs().map(j=>({id:j.id,state:j.state,run_id:j.run_id,dispatch_at:j.dispatch_at,expires:j.expires,file_id:j.file_id,etag:j.etag})),outputs:this.controller.jobs().filter(j=>j.files?.length).length});
+    if(action==='index')return this.controller.mode()==='cloudflare'?this.controller.index(body.capability,body.name):new Response('Chưa chuyển Index Link.',{status:503});
+    if(this.controller.mode()==='cloudflare'){
+      if(action==='status')return reply({leader:'cloudflare',epoch:s.epoch,initialized:true,pending:this.pending().length,...this.controller.summary()});
+      if(['tick','save','release'].includes(action))return reply({granted:false,leader:'cloudflare',retired:true});
+      if(action==='result'&&body.result){try{await this.controller.result(body.id,body.result);await this.controller.schedule();return reply({accepted:true});}catch(error){return reply({error:error instanceof BotError?error.message:'Invalid callback'},400);}}
+    }
     if(action==='telegram'){
       if(this.sql.exec('SELECT COUNT(*) AS n FROM events WHERE done=0').one().n>=1000)return reply({error:'queue full'},503);
       this.sql.exec('INSERT OR IGNORE INTO events(id,payload,created) VALUES(?,?,?)','u:'+body.update_id,JSON.stringify(body),now);
       this.persist(s);await this.schedule();
+      if(this.controller.mode()==='cloudflare'){this.ctx.waitUntil(this.controller.process());return new Response(null,{status:204});}
       if(!s.leader||s.leader.until<=now)this.ctx.waitUntil(this.wake());
       return new Response(null,{status:204});
     }
@@ -77,11 +98,13 @@ export class BotState extends DurableObject {
       // Rearm the event: the workflow announces again after artifact upload.
       this.sql.exec('INSERT INTO events(id,payload,created) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET done=0,payload=excluded.payload,created=excluded.created','r:'+body.id,'{}',now);
       this.persist(s);await this.schedule();
+      if(this.controller.mode()==='cloudflare'){this.ctx.waitUntil(this.controller.process());return reply({accepted:true});}
       if(!s.leader||s.leader.until<=now)this.ctx.waitUntil(this.wake());
       return reply({accepted:true});
     }
     if(action==='status')return reply({leader:s.leader?.until>now?s.leader.role:null,epoch:s.epoch,initialized:!!s.snapshot,pending:this.pending().length,primary_age_seconds:s.primaryAt?Math.floor((now-s.primaryAt)/1000):null});
     if(!['tick','save','release'].includes(action)||!['docker','render'].includes(body.role)||!/^[a-f0-9]{32}$/.test(body.instance))return reply({error:'invalid request'},400);
+    if(s.controller==='staged'&&(body.epoch===null||body.epoch===undefined))return reply({granted:false,leader:'migration'});
     if(body.snapshot){
       if(typeof body.snapshot!=='string'||body.snapshot.length>800000||!/^[a-f0-9]{64}$/.test(body.digest))return reply({error:'invalid snapshot'},400);
       let bytes;try{bytes=Uint8Array.from(atob(body.snapshot),c=>c.charCodeAt(0));}catch{return reply({error:'invalid snapshot'},400);}
@@ -117,6 +140,7 @@ export class BotState extends DurableObject {
     try{await fetch(config.fallback_url+'/wake',{method:'POST',headers:{Authorization:'Bearer '+config.host_key},signal:AbortSignal.timeout(5000)});}catch{}
   }
   async alarm(){
+    if(this.controller.mode()==='cloudflare'){await this.controller.process();return;}
     const s=this.state(),now=Date.now();
     if(s.cleanupAt&&s.cleanupAt<=now&&s.lastCleanup+300000<=now){
       this.sql.exec('INSERT OR IGNORE INTO events(id,payload,created) VALUES(?,?,?)','m:'+Math.floor(now/300000),'{}',now);

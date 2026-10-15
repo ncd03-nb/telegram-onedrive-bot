@@ -4,13 +4,15 @@ import time
 
 
 class Progress:
-    def __init__(self, telegram, chat, message_id, job_id, interval=15):
+    def __init__(self, telegram, chat, message_id, job_id, interval=2):
         self.telegram, self.chat, self.message_id = telegram, chat, message_id
         self.job_id, self.interval = job_id, interval
         self.count, self.total, self.destination = 0, None, ""
         self.started = time.monotonic()
         self.task = None
         self.finished = False
+        self.last_signature = None
+        self.last_render = 0
 
     def text(self, finished=False):
         pct = 100 if finished else (min(99, self.count * 100 / self.total) if self.total else 0)
@@ -27,10 +29,13 @@ class Progress:
         self.count, self.total, self.destination = count, total, dest
 
     async def render(self, text=None):
+        signature=(self.count,self.total,self.destination,self.finished,text)
+        if signature==self.last_signature and time.monotonic()-self.last_render<10:return
         delivered = False
         try:
             await self.telegram.edit(self.chat, self.message_id, text or self.text())
             delivered = True
+            self.last_signature=signature;self.last_render=time.monotonic()
         except Exception:
             # Delivery failures must not abort a multi-GB upload or leak an API URL.
             pass

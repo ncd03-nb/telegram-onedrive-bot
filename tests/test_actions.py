@@ -40,8 +40,11 @@ class ActionsTests(unittest.IsolatedAsyncioTestCase):
         job['requested_name'] = '$(echo unsafe); ROM.zip'
         await actions.dispatch(job)
         inputs = actions.request.await_args.args[2]['inputs']
-        self.assertEqual(inputs['requested_name'],job['requested_name'])
-        self.assertEqual(inputs['message_id'],'77')
+        from app.exchange import unseal
+        decoded=unseal(self.bot.s.token,inputs['job_payload'],job['id'])
+        self.assertEqual(decoded['requested_name'],job['requested_name'])
+        self.assertEqual(decoded['message_id'],77)
+        self.assertNotIn(job['url'],json.dumps(inputs))
 
     async def test_existing_run_is_reconciled_without_dispatch_after_restart(self):
         job = self.job()
@@ -105,7 +108,10 @@ class ActionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('99.0%',p.text())
         await p.start()
         await asyncio.sleep(0.07)
-        self.assertGreaterEqual(self.bot.telegram.edit.await_count,3)
+        self.assertEqual(self.bot.telegram.edit.await_count,1)
+        p.last_render-=11
+        await asyncio.sleep(0.03)
+        self.assertGreaterEqual(self.bot.telegram.edit.await_count,2)
         await p.close(finished=True)
         self.assertIn('100.0%',self.bot.telegram.edit.await_args.args[2])
         count = self.bot.telegram.edit.await_count

@@ -23,7 +23,7 @@ class Telegram:
             async with self.session.post(self.base + method, json=params) as r:
                 obj = await r.json()
                 if r.status == 429:
-                    await asyncio.sleep(min(obj.get("parameters", {}).get("retry_after", 3), 30))
+                    await asyncio.sleep(max(1,obj.get("parameters", {}).get("retry_after", 3)))
                     continue
                 if not obj.get("ok"):
                     # Do not expose a token, signed URL, arbitrary API response or exception URL.

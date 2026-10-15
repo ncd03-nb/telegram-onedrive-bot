@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import aiohttp
 
 from .source import SourceError
+from .exchange import seal,unseal
 
 
 class Actions:
@@ -39,9 +40,7 @@ class Actions:
         # Inputs go through JSON, never interpolation into shell commands.
         return await self.request("POST", "/actions/workflows/copy.yml/dispatches", {
             "ref": self.s.github_ref, "inputs": {
-                "job_id": job["id"], "source_url": job["url"],
-                "requested_name": job["requested_name"], "owner": str(job["owner"]),
-                "chat": str(job["chat"]), "message_id": str(job["message_id"]),
+                "job_id": job["id"], "job_payload":seal(self.s.token,job,job['id']),
                 "max_file_gib": str(self.s.max_bytes // 1024**3),
                 "retention_hours": str(self.s.retention_hours)}})
 
@@ -72,7 +71,8 @@ class Actions:
             raw = await read_limited(r.content, 131072)
             if r.status != 200 or len(raw) > 131072:
                 raise SourceError("Artifact kết quả không hợp lệ.")
-        return decode_result(raw, job_id)
+        result=decode_result(raw,job_id)
+        return unseal(self.s.token,result['sealed'],job_id) if result.get('sealed') else result
 
     async def observe(self, job, store):
         while True:
@@ -112,9 +112,10 @@ async def read_limited(stream, limit):
 def decode_result(raw, job_id):
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         entry = archive.getinfo("result.json")
-        if entry.file_size > 65536:
+        if entry.file_size > 180000:
             raise SourceError("Kết quả Actions vượt kích thước cho phép.")
         obj = json.loads(archive.read(entry))
+    if not obj.get('sealed') and entry.file_size>65536:raise SourceError('Kết quả Actions vượt kích thước cho phép.')
     if not isinstance(obj, dict) or obj.get("id") != job_id or obj.get("state") not in {"done", "failed", "cancelled"}:
         raise SourceError("Kết quả Actions không khớp tác vụ.")
     return obj
