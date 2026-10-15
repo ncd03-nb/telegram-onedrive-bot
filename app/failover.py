@@ -189,7 +189,8 @@ class Failover:
                     # let Docker repeatedly re-claim ownership and starve Render.
                     self.retry_after=time.monotonic()+75
                 self.event.clear()
-                try:await asyncio.wait_for(self.event.wait(),15)
+                interval=5 if self.active or self.role=='docker' else 15
+                try:await asyncio.wait_for(self.event.wait(),interval)
                 except asyncio.TimeoutError:pass
         finally:
             if self.active:

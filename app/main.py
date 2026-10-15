@@ -470,6 +470,7 @@ class Bot:
             "transfer_backend": self.s.transfer_backend,
             "custom_downloads": bool(self.s.download_base_url),
             "failover": self.hub.status() if self.hub else None,
+            "stored_jobs": self.store.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],
             "actions_configured": bool(self.s.github_token)}, status=200 if healthy else 503)
 
     async def webhook(self, request):

@@ -107,7 +107,7 @@ export class BotState extends DurableObject {
     const result={granted:true,epoch:s.epoch,yield_to_docker:body.role==='render'&&s.primaryAt>now-LEASE_MS,
       updates:pending.filter(e=>e.id.startsWith('u:')).map(e=>JSON.parse(e.payload)),events:pending.filter(e=>!e.id.startsWith('u:')).map(e=>e.id)};
     if(body.epoch===null||body.epoch===undefined)result.snapshot=s.snapshot;
-    if(action==='release')s.leader=null;
+    if(action==='release'){s.leader=null;if(body.role==='docker')s.primaryAt=0;}
     this.persist(s);await this.schedule();return reply(result);
   }
   async wake(){

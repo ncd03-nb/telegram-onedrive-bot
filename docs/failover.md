@@ -4,7 +4,7 @@ Cloudflare `telegram-bot-failover` holds the permanent Telegram webhook, pending
 
 Docker and Render use `HUB_URL`, `HUB_BOT_ID=onedrive|payload`, and `HUB_ROLE=docker|render`. OneDrive also requires `BOT_MODE=hub` and `TRANSFER_BACKEND=actions`. In this mode neither host changes the webhook or calls Telegram `getUpdates`.
 
-Hosts renew ownership every 15 seconds; ownership expires after 60 seconds without renewal. Render takes over only after a synchronized state exists. Docker returning has priority once Render has no command, job or cleanup in progress. The old lease epoch cannot write a checkpoint or acknowledge commands. A host that loses connectivity stops its controller tasks.
+Active hosts and Docker check ownership and commands every 5 seconds; passive Render hosts check every 15 seconds. Ownership expires after 60 seconds without renewal; a graceful Docker shutdown releases it immediately. Render takes over only after a synchronized state exists. Docker returning has priority once Render has no command, job or cleanup in progress. The old lease epoch cannot write a checkpoint or acknowledge commands. A host that loses connectivity stops its controller tasks.
 
 The database snapshot is committed **before** dispatching Actions, including the unique task ID and dispatch intent. A restarted controller reconciles the existing workflow by unique run name, and never repeats an ambiguous dispatch. A crash between the checkpoint and the POST can leave a task needing manual reconciliation instead of creating a duplicate upload. Telegram notifications themselves do not have an exactly-once API.
 
