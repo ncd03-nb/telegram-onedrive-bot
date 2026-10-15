@@ -24,3 +24,13 @@ The controller commits dispatch intent before calling GitHub. A network-ambiguou
 The OneDrive Index endpoint returns a redirect to the current preauthenticated download URL; file bytes are served by OneDrive. File ID, size, content tag, signature and expiry are verified. Deletion uses the original eTag with `If-Match`, protecting files that were moved, replaced or edited. Payload output files keep the previous no-automatic-deletion policy.
 
 Workers and Durable Objects remain subject to their free quotas, and GitHub Actions remains subject to runner availability and service policy. Controller migration does not increase CDN or Drive upload bandwidth.
+
+## Archive copy destination
+
+The OneDrive bot now pins `storage=archive` on newly accepted jobs and dispatches `archive-copy.yml`. Payload extraction still uses Google Drive. Existing jobs without this marker continue using `copy.yml` and Microsoft Graph, including their original eTag deletion guard.
+
+Archive credentials are stored as `IA_ACCESS_KEY`/`IA_SECRET_KEY` Actions secrets and inside the private `ONEDRIVE_CREDENTIALS` Worker secret for scheduled cleanup. `storage_backend=archive` controls admission; changing it does not move old jobs. Source URLs and result records still use encrypted envelopes. Archive bytes are public and the bot must only receive content intended for public sharing.
+
+The Archive runner spools a size-bounded source on the runner, validates its source MD5 when available, uploads 8 parts concurrently with 16 MiB parts, then waits for Archive metadata size/MD5 and a public Range read. Small files use one checksum-verified PUT. The completion identity is saved before waiting for ingestion so cancellation or delayed ingestion does not discard the cleanup record.
+
+Index URLs keep the same signed Worker route and redirect to canonical `archive.org/download/<item>/<name>` URLs. `/link`, `/dl`, `/find`, and final replies select the backend saved on the job. Metadata/checksum is checked before returning links. Public direct Archive links are not revoked by Index expiry. At 12 hours the controller validates original item/name/size/MD5, submits a file deletion without an old-version backup, and polls until metadata confirms removal. Archive's asynchronous processing can delay actual deletion; never promise exact expiry of the public direct URL.
