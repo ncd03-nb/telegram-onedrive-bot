@@ -13,7 +13,7 @@ async function setup(t,bot='payload',jobs=[],outputs=[]){
  const bundle=await build({entryPoints:[new URL('../src/index.mjs',import.meta.url).pathname.replace(/^\/(\w:)/,'$1')],bundle:true,format:'esm',write:false,external:['cloudflare:workers']});
  const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-01',durableObjects:{BOT_STATE:{className:'BotState',useSQLite:true}},bindings:{BOTS_CONFIG:JSON.stringify(config),PAYLOAD_CREDENTIALS:JSON.stringify(credentials),ONEDRIVE_CREDENTIALS:JSON.stringify(credentials)},outboundService:async request=>{
   const url=new URL(request.url);const body=request.method==='GET'?null:await request.text();calls.push({url:url.href,method:request.method,body,headers:Object.fromEntries(request.headers)});
-  if(url.hostname==='api.telegram.org')return Response.json({ok:true,result:{message_id:900}});
+  if(url.hostname==='api.telegram.org')return Response.json({ok:true,result:{message_id:899+calls.filter(c=>c.url.endsWith('/sendMessage')).length}});
   if(url.hostname==='api.github.com'){
    if(url.pathname.endsWith('/dispatches'))return new Response(null,{status:204});
    return Response.json({workflow_runs:[]});
@@ -82,7 +82,7 @@ test('authenticated envelopes reject cross-job replay and tampering',async()=>{
  assert.equal((await unseal(credentials.token,value,'0123456789ab')).id,'0123456789ab');
  await assert.rejects(unseal(credentials.token,value,'222222222222'));await assert.rejects(unseal('other-token',value,'0123456789ab'));
 });
-test('scan edits its original reply, paginates without extra messages and checks the owner',async t=>{
+test('scan sends one final reply, paginates that reply and checks the owner',async t=>{
  const {api,webhook,calls}=await setup(t);
  await webhook(update('/list https://example.org/rom.zip',31));
  await waitFor(()=>calls.some(c=>c.url.endsWith('/dispatches')));
@@ -91,28 +91,29 @@ test('scan edits its original reply, paginates without extra messages and checks
  const result={id:input.job_id,owner:123,state:'done',url:'https://example.org/rom.zip',metadata,rom_version:'OS3.test'};
  const body={id:input.job_id,result:{sealed:await seal(credentials.token,result,input.job_id)}};
  assert.equal((await api('result',body)).status,200);await api('result',body);
- const sent=calls.filter(c=>c.url.endsWith('/sendMessage'));assert.equal(sent.length,1);
- assert.equal(JSON.parse(sent[0].body).reply_parameters.message_id,7);assert.equal(JSON.parse(sent[0].body).message_thread_id,3);
- const edits=()=>calls.filter(c=>c.url.endsWith('/editMessageText'));
- const first=JSON.parse(edits().at(-1).body);assert.equal(first.message_id,900);assert.equal(first.chat_id,-10022);
+ const sent=calls.filter(c=>c.url.endsWith('/sendMessage'));assert.equal(sent.length,2);
+ assert.equal(JSON.parse(sent[0].body).reply_parameters,undefined);assert.equal(JSON.parse(sent[0].body).message_thread_id,3);
+ assert.equal(JSON.parse(sent[1].body).reply_parameters.message_id,7);assert.equal(JSON.parse(sent[1].body).message_thread_id,3);
+ const edits=()=>calls.filter(c=>c.url.endsWith('/editMessageText')&&JSON.parse(c.body).message_id===901);
+ const first=JSON.parse(sent[1].body);assert.equal(first.chat_id,-10022);
  assert.ok(first.text.includes('400 phân vùng'));assert.ok(first.text.includes('partition_0'));assert.ok(first.text.length<=4000);
  const data=first.reply_markup.inline_keyboard.at(-1).at(-1).callback_data;
- const callback=(uid,owner,message=900)=>({update_id:uid,callback_query:{id:'q'+uid,from:{id:owner,is_bot:false},message:{message_id:message,chat:{id:-10022,type:'supergroup'}},data}});
- await webhook(callback(32,999));await waitFor(()=>calls.some(c=>c.body?.includes('q32')));assert.equal(edits().length,1);
- await webhook(callback(33,123,901));await waitFor(()=>calls.some(c=>c.body?.includes('q33')));assert.equal(edits().length,1);
- await webhook(callback(34,123));await waitFor(()=>edits().length===2);
- const next=JSON.parse(edits().at(-1).body);assert.equal(next.message_id,900);assert.ok(!next.text.includes('\npartition_0 —'));assert.ok(next.text.includes('Trang 2/'));assert.ok(next.text.length<=4000);
- assert.equal(calls.filter(c=>c.url.endsWith('/sendMessage')).length,1);
+ const callback=(uid,owner,message=901)=>({update_id:uid,callback_query:{id:'q'+uid,from:{id:owner,is_bot:false},message:{message_id:message,chat:{id:-10022,type:'supergroup'}},data}});
+ await webhook(callback(32,999));await waitFor(()=>calls.some(c=>c.body?.includes('q32')));assert.equal(edits().length,0);
+ await webhook(callback(33,123,900));await waitFor(()=>calls.some(c=>c.body?.includes('q33')));assert.equal(edits().length,0);
+ await webhook(callback(34,123));await waitFor(()=>edits().length===1);
+ const next=JSON.parse(edits().at(-1).body);assert.equal(next.message_id,901);assert.ok(!next.text.includes('\npartition_0 —'));assert.ok(next.text.includes('Trang 2/'));assert.ok(next.text.length<=4000);
+ assert.equal(calls.filter(c=>c.url.endsWith('/sendMessage')).length,2);
 });
-test('successful extraction edits the progress message and attaches the download button',async t=>{
+test('successful extraction sends its final download reply to the original user command',async t=>{
  const {api,webhook,calls}=await setup(t);await webhook(update('/extract https://example.org/rom.zip boot',41));
  await waitFor(()=>calls.some(c=>c.url.endsWith('/dispatches')));
  const input=JSON.parse(calls.find(c=>c.url.endsWith('/dispatches')).body).inputs;
  const result={id:input.job_id,owner:123,state:'done',notified:true,files:[{name:'boot.img',size:123,url:'https://drive.google.com/file',rom_version:'OS3.test'}]};
  assert.equal((await api('result',{id:input.job_id,result:{sealed:await seal(credentials.token,result,input.job_id)}})).status,200);
- assert.equal(calls.filter(c=>c.url.endsWith('/sendMessage')).length,1);
- const final=JSON.parse(calls.filter(c=>c.url.endsWith('/editMessageText')).at(-1).body);
- assert.equal(final.message_id,900);assert.ok(final.text.includes('boot.img'));assert.equal(final.reply_markup.inline_keyboard[0][0].url,result.files[0].url);
+ const sends=calls.filter(c=>c.url.endsWith('/sendMessage'));assert.equal(sends.length,2);
+ const final=JSON.parse(sends.at(-1).body);
+ assert.equal(final.reply_parameters.message_id,7);assert.equal(final.message_thread_id,3);assert.ok(final.text.includes('boot.img'));assert.equal(final.reply_markup.inline_keyboard[0][0].url,result.files[0].url);
 });
 test('valid Index Link redirects without exposing credentials to download hosts',async t=>{
  const expires=Date.now()/1000+43200;const job={id:'333333333333',update_id:4,owner:123,chat:123,state:'done',created:1,completed:expires-43200,expires,destination:'onedrive:TelegramUploads/333333333333/rom.zip',total:1024,file_id:'file-id',etag:'original-etag',link_ctag:'original-content',retention:'armed',manifest:1};

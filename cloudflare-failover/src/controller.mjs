@@ -119,7 +119,7 @@ export class Controller {
    const count=this.sql.exec("SELECT COUNT(*) AS count FROM cloud_jobs WHERE owner=? AND state IN ('queued','running')",owner).one().count;if(count>=3)throw new BotError('Mỗi người tối đa 3 tác vụ đang chờ/chạy.');
    j={id:id(),bot:this.bot(),kind,update_id:update.update_id,owner,chat:m.chat.id,url,requested_name:requested,partitions:requested,state:'queued',created:now(),thread_id:m.message_thread_id||0,request_message_id:m.message_id||0};this.save(j);
   }
-  if(!j.message_id){const sent=await send(c,m,(kind==='scan'?'🔎 Đang đọc danh sách phân vùng…':'⏳ '+j.id+' — Đang chờ GitHub Actions\nTiến độ: 0%'));j.message_id=sent.message_id;this.save(j);}
+  if(!j.message_id){const sent=await send(c,{...m,message_id:0},(kind==='scan'?'🔎 Đang đọc danh sách phân vùng…':'⏳ '+j.id+' — Đang chờ GitHub Actions\nTiến độ: 0%'));j.message_id=sent.message_id;this.save(j);}
  }
  async advance(j){
   const c=this.config();
@@ -173,23 +173,25 @@ export class Controller {
  async finishNotify(j){
   if(j.scan_notification){const scan=j.scan_notification;
    await this.present(j,'📦 ROM '+j.id+' — '+scan.metadata.length+' phân vùng\n📱 '+(scan.rom_version||'Không xác định')+'\n/extract '+j.id+' boot,init_boot,vbmeta\nMã ROM có hiệu lực 24 giờ.',scan.metadata.map(p=>p.name+' — '+(p.size/1024**2).toFixed(1)+' MiB'+(p.supported?'':' [delta]')));delete j.scan_notification;
-  }else if(j.state!=='done')await edit(this.config(),j,'❌ '+this.describe(j));
+  }else if(j.state!=='done')await this.present(j,'❌ '+this.describe(j));
   else if(j.bot==='payload')for(const file of j.files||[])await this.file(file,this.message(j),j);
   else await this.links(j,this.message(j),false,true);j.notification_needed=false;this.save(j);
  }
  async present(j,heading,lines=[],markup){
   const pages=[];let text=heading.slice(0,1000)+'\n';
   for(const line of lines){const row=line.slice(0,2000);if(text.length+row.length+1>3800){pages.push(text.trimEnd());text=heading.slice(0,1000)+'\n';}text+='\n'+row;}
-  pages.push(text.trimEnd());j.response_pages=pages;j.response_markup=markup||{inline_keyboard:[]};this.save(j);await this.renderPage(j,0);
+  pages.push(text.trimEnd());j.response_pages=pages;j.response_markup=markup||{inline_keyboard:[]};this.save(j);await this.renderPage(j,0,true);
  }
- async renderPage(j,page){
+ async renderPage(j,page,initial=false){
   const pages=j.response_pages,buttons=[...(j.response_markup?.inline_keyboard||[])];
   if(pages.length>1){const nav=[];if(page>0)nav.push({text:'‹ Trước',callback_data:'page:'+j.id+':'+(page-1)});if(page+1<pages.length)nav.push({text:'Sau ›',callback_data:'page:'+j.id+':'+(page+1)});buttons.push(nav);}
-  await edit(this.config(),j,pages[page]+(pages.length>1?'\n\nTrang '+(page+1)+'/'+pages.length:''),{inline_keyboard:buttons});
+  const text=pages[page]+(pages.length>1?'\n\nTrang '+(page+1)+'/'+pages.length:''),markup={inline_keyboard:buttons};
+  if(initial&&!j.result_message_id){const sent=await send(this.config(),this.message(j),text,markup);j.result_message_id=sent.message_id;this.save(j);if(j.kind==='scan'){try{await edit(this.config(),j,'✅ Đã đọc xong danh sách phân vùng.');}catch{}}}
+  else await edit(this.config(),{...j,message_id:j.result_message_id||j.message_id},text,markup);
  }
  async page(q){
   const [,jid,value]=q.data.split(':'),j=this.get(jid,q.from.id),page=Number(value);
-  if(!j||j.chat!==q.message.chat.id||j.message_id!==q.message.message_id||!j.response_pages||page>=j.response_pages.length||j.kind==='scan'&&j.completed<now()-86400){await telegram(this.config(),'answerCallbackQuery',{callback_query_id:q.id,text:'Danh sách đã hết hạn hoặc không thuộc yêu cầu của bạn.'});return;}
+  if(!j||j.chat!==q.message.chat.id||(j.result_message_id||j.message_id)!==q.message.message_id||!j.response_pages||page>=j.response_pages.length||j.kind==='scan'&&j.completed<now()-86400){await telegram(this.config(),'answerCallbackQuery',{callback_query_id:q.id,text:'Danh sách đã hết hạn hoặc không thuộc yêu cầu của bạn.'});return;}
   await this.renderPage(j,page);await telegram(this.config(),'answerCallbackQuery',{callback_query_id:q.id});
  }
  async file(file,m,target){
@@ -212,7 +214,7 @@ export class Controller {
   const direct=item['@microsoft.graph.downloadUrl'];if(!direct?.startsWith('https://'))throw new BotError('OneDrive chưa trả link tải.',30);
   const buttons=[];if(!directOnly)buttons.push({text:'⚡ Index Link',url:await indexURL(this.config(),j,this.origin())});buttons.push({text:'⬇ Tải trực tiếp',url:direct});
   const text='✅ Hoàn thành\n📄 '+item.name,markup={inline_keyboard:[buttons]};
-  if(inPlace)await edit(this.config(),j,text,markup);else await send(this.config(),m,text,markup);
+  if(inPlace)await this.present(j,text,[],markup);else await send(this.config(),m,text,markup);
  }
  async cleanup(j){
   const graph=new Graph(this.config(),this.ctx.storage);const item=await graph.item(j.destination);

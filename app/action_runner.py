@@ -60,7 +60,7 @@ async def run():
         current = store.get(job_id, owner)
         await progress.close(finished=True)
         notified = False
-        if item:
+        if item and not s.hub_url:
             try:
                 await telegram.edit(chat, message_id, link_message(current, item, settings=s),
                     reply_markup=link_keyboard(s, current, item))
