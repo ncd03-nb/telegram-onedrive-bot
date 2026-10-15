@@ -50,7 +50,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
           sudo chown -R 10001:10001 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data" "$RUNNER_TEMP/od-result"
           sudo chmod 700 "$RUNNER_TEMP/od-config" "$RUNNER_TEMP/od-data"
-      - name: Download and upload with 15-second Telegram progress
+      - name: Download and upload with live Telegram progress
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           HUB_URL: ${{ vars.HUB_URL }}
@@ -76,6 +76,7 @@ jobs:
             -e JOB_ID -e JOB_PAYLOAD -e JOB_SOURCE_URL -e JOB_REQUESTED_NAME -e JOB_OWNER -e JOB_CHAT -e JOB_MESSAGE_ID \
             -e MAX_FILE_GIB -e RETENTION_HOURS -e TRANSFER_TIMEOUT_SECONDS=19800 -e MAX_SPOOL_MIB=512 \
             -e ONEDRIVE_CHUNK_MIB=50 \
+            -e ONEDRIVE_DISABLE_HTTP2=true -e SOURCE_PREFETCH_MIB=64 \
             -e DOWNLOAD_BASE_URL -e HUB_URL -e HUB_BOT_ID \
             -e RESULT_PATH=/result/result.json onedrive-worker python -m app.action_runner
       - name: Store small result for controller recovery

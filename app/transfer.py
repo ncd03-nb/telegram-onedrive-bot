@@ -4,9 +4,52 @@ import json
 import shutil
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from .source import SourceError, clean_name
+
+
+@asynccontextmanager
+async def buffered_source(content, capacity_mib):
+    """Continue downloading during upload requests, with a fixed RAM ceiling."""
+    if not capacity_mib:
+        yield content.iter_chunked(1024**2)
+        return
+    queue = asyncio.Queue(maxsize=capacity_mib)
+
+    async def produce():
+        pending = bytearray()
+        try:
+            async for data in content.iter_chunked(1024**2):
+                pending.extend(data)
+                while len(pending) >= 1024**2:
+                    await queue.put(bytes(pending[:1024**2]))
+                    del pending[:1024**2]
+            if pending:
+                await queue.put(bytes(pending))
+        except Exception as error:
+            await queue.put(error)
+        else:
+            await queue.put(None)
+
+    async def consume():
+        while True:
+            data = await queue.get()
+            if data is None:
+                return
+            if isinstance(data, Exception):
+                raise data
+            yield data
+
+    task = asyncio.create_task(produce())
+    stream = consume()
+    try:
+        yield stream
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await stream.aclose()
 
 
 def rclone_error(lines):
@@ -43,7 +86,8 @@ class Transfer:
         return ["--config", str(self.s.config), "--onedrive-chunk-size", f"{self.s.onedrive_chunk_mib}Mi",
                 "--buffer-size", "1Mi", "--transfers", "1", "--checkers", "1",
                 "--retries", "1", "--low-level-retries", "10", "--contimeout", "30s",
-                "--timeout", "5m", "--stats", "0", "--log-level", "ERROR"]
+                "--timeout", "5m", "--stats", "0", "--log-level", "ERROR",
+                *(["--disable-http2"] if self.s.onedrive_disable_http2 else [])]
 
     async def run_command(self, args, timeout=60):
         proc = await asyncio.create_subprocess_exec(self.s.rclone, *args,
@@ -93,16 +137,17 @@ class Transfer:
         count, last = 0, 0
         digest = hashlib.md5(usedforsecurity=False)
         try:
-            async for block in response.content.iter_chunked(1024 * 1024):
-                count += len(block)
-                if count > meta["size"] or count > self.s.max_bytes:
-                    raise SourceError("Nguồn gửi nhiều byte hơn dung lượng khai báo.")
-                digest.update(block)
-                proc.stdin.write(block)
-                await proc.stdin.drain()
-                if time.monotonic() - last > 3:
-                    await progress(count, meta["size"], dest)
-                    last = time.monotonic()
+            async with buffered_source(response.content, self.s.source_prefetch_mib) as blocks:
+                async for block in blocks:
+                    count += len(block)
+                    if count > meta["size"] or count > self.s.max_bytes:
+                        raise SourceError("Nguồn gửi nhiều byte hơn dung lượng khai báo.")
+                    digest.update(block)
+                    proc.stdin.write(block)
+                    await proc.stdin.drain()
+                    if time.monotonic() - last > 3:
+                        await progress(count, meta["size"], dest)
+                        last = time.monotonic()
             if count != meta["size"]:
                 raise SourceError("Nguồn bị ngắt; file tải chưa đủ dung lượng.")
             if meta["md5"] and digest.hexdigest().lower() != meta["md5"].lower():
