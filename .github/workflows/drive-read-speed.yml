@@ -1,0 +1,33 @@
+name: Measure Drive source download
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: drive-read-speed-test
+  cancel-in-progress: false
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: docker build -t onedrive-worker .
+      - name: Prepare result directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/drive-speed"
+          sudo chown 10001:10001 "$RUNNER_TEMP/drive-speed"
+      - name: Read source bytes without changing Drive
+        env:
+          GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/drive-speed:/result" -e GOOGLE_TOKEN_B64 \
+            onedrive-worker python scripts/benchmark_drive_read.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drive-read-speed
+          path: ${{ runner.temp }}/drive-speed/drive-read-speed.json
+          retention-days: 2
