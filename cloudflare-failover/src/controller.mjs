@@ -1,6 +1,6 @@
 import {credential,BotError,now,id,seal,unseal,bytes64,limited,telegram,send,edit,github,findRun,workflow,artifact,source,cleanName,Graph,indexURL} from './services.mjs';
 const odHelp='/copy <link> [tên file]\n/status [mã]\n/cancel <mã>\n/find <từ khóa>\n/link <mã> — Index Link và tải trực tiếp\n/dl <mã>\n/check — quota OneDrive\nFile mới upload lên OneDrive, tự xóa sau 12 giờ.';
-const payloadHelp='/list <link ZIP OTA hoặc payload.bin>\n/extract <link hoặc mã ROM> boot,init_boot,vbmeta\n/extract <mã ROM> all\n/status [mã]\n/cancel <mã>\n/files <mã>\nNhiều phân vùng được gộp thành một ZIP. Chỉ nhận lệnh / trong chat riêng hoặc group, không cần tag bot.';
+const payloadHelp='/list <link ZIP, payload.bin hoặc super.img>\n/extract <link hoặc mã ROM> system,vendor\n/extract <mã ROM> all\n/status [mã]\n/cancel <mã>\n/files <mã>\nTự nhận diện payload, thư mục ảnh .img và super raw/sparse. ZIP nén super cần giải nén phần trước vùng cần đọc. Nhiều phân vùng được gộp thành một ZIP. Chỉ nhận lệnh / trong chat riêng hoặc group, không cần tag bot.';
 const terminal=new Set(['done','failed','cancelled','deleted','interrupted']);
 export class Controller {
  constructor(parent){this.p=parent;this.sql=parent.sql;this.ctx=parent.ctx;this.env=parent.env;this.processing=null;
@@ -178,7 +178,8 @@ export class Controller {
  }
  async finishNotify(j){
   if(j.scan_notification){const scan=j.scan_notification;
-   await this.present(j,'📦 ROM '+j.id+' — '+scan.metadata.length+' phân vùng\n📱 '+(scan.rom_version||'Không xác định')+'\n/extract '+j.id+' boot,init_boot,vbmeta\nMã ROM có hiệu lực 24 giờ.',scan.metadata.map(p=>p.name+' — '+(p.size/1024**2).toFixed(1)+' MiB'+(p.supported?'':' [delta]')));delete j.scan_notification;
+   const examples=scan.metadata.filter(p=>p.supported).map(p=>p.name),preferred=['boot','init_boot','vbmeta','system','vendor'].filter(name=>examples.includes(name)).slice(0,3);
+   await this.present(j,'📦 ROM '+j.id+' — '+scan.metadata.length+' phân vùng\n📱 '+(scan.rom_version||'Không xác định')+'\n/extract '+j.id+' '+(preferred.length?preferred:examples.slice(0,3)).join(',')+'\nMã ROM có hiệu lực 24 giờ.',scan.metadata.map(p=>p.name+' — '+(p.size/1024**2).toFixed(1)+' MiB'+(p.supported?'':' [không hỗ trợ]')));delete j.scan_notification;
   }else if(j.state!=='done')await this.present(j,'❌ '+this.describe(j));
   else if(j.bot==='payload')for(const file of j.files||[])await this.file(file,this.message(j),j);
   else await this.links(j,this.message(j),false,true);j.notification_needed=false;this.save(j);
