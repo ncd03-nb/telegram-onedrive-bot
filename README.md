@@ -22,6 +22,10 @@ File tự xóa sau **12 giờ từ lúc hoàn tất**. Cloudflare kiểm tra ID/
 
 Bot này chỉ nhận chat riêng từ người được phép. Link Drive riêng tư cần được chia sẻ cho tài khoản Google đã kết nối; link công khai vẫn chịu quyền tải/quota của Google. Chưa hỗ trợ thư mục Drive, Google Docs/Sheets hoặc MEGA mã hóa.
 
+Link OTA OPlus `downloadCheck` cũng dùng trực tiếp với `/copy`: hỗ trợ các host con của `allawnos.com`, `allawntech.com` (gồm CN), `coloros.com` và `oplusota.com`. Runner gửi header updater tới endpoint kiểm tra, lấy redirect CDN rồi tải file ROM bằng luồng copy hiện có. Tên/kích thước lấy từ file CDN, không dùng tên `downloadCheck`. Link hết hạn hoặc phản hồi JSON báo lỗi (ví dụ mã 2306) sẽ báo thất bại **trước khi bắt đầu upload**, không tạo file JSON giả ROM trên OneDrive. Header updater chỉ gửi tới endpoint được hỗ trợ; OAuth Google, token GitHub và Telegram không gửi tới endpoint/CDN. Các giới hạn file và lịch xóa 12 giờ vẫn áp dụng.
+
+Một số CDN OPlus gắn `Content-Encoding: UTF-8` cho ZIP nhị phân: runner giữ nguyên byte và chấp nhận nhãn này riêng cho luồng OPlus; vẫn từ chối mã hóa HTTP gzip/br/deflate. Kiểm thử ngày 21/10/2026: link CN trước đó bị copy thành JSON đã trả ZIP **8.198.755.980 byte (7,64 GiB)** với magic `PK`, đọc mẫu 32 byte thành công. Chưa copy lại toàn bộ file này trong bài kiểm tra. Bộ kiểm tra Python hiện có 91 bài, gồm luồng redirect tới ROM, JSON/CDN lỗi, host giả mạo, redirect tới IP nội bộ và không khởi tạo uploader khi API trả lỗi.
+
 ## Triển khai
 
 Cloudflare Worker và hai Durable Objects nằm trong `cloudflare-failover/`; nó điều khiển cả bot OneDrive và bot payload. Xem [cấu hình và quy trình chuyển dữ liệu](docs/cloudflare-controller.md). Token Telegram, OAuth và token GitHub được lưu trong secrets; file cấu hình local nằm trong `config/` được Git bỏ qua.

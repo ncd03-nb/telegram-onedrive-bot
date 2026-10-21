@@ -153,7 +153,29 @@ class Sources:
                 tmp.replace(path)
             return result["access_token"]
 
-    async def get(self, url, headers=None):
+    async def oplus_download(self, url):
+        validate_url(url)
+        parsed = urlsplit(url)
+        if not parsed.path.rstrip('/').endswith('/downloadCheck'):
+            return url, False
+        if parsed.scheme != 'https' or not (parsed.hostname or '').endswith(
+                ('.allawnos.com', '.allawntech.com', '.coloros.com', '.oplusota.com')):
+            raise SourceError('Host downloadCheck OPlus chưa được hỗ trợ.')
+        # These public updater headers go only to the supported check endpoint.
+        # Never attach Google OAuth, GitHub or Telegram credentials here.
+        async with asyncio.timeout(60):
+            async with self.session.get(url, allow_redirects=False, headers={
+                    'User-Agent': 'okhttp/3.12.12', 'Accept': '*/*', 'Accept-Encoding': 'identity',
+                    'Cache-Control': 'no-cache', 'userId': 'oplus-ota|16002018'}) as response:
+                if response.status in {301, 302, 303, 307, 308} and response.headers.get('Location'):
+                    target = validate_url(urljoin(url, response.headers['Location']))
+                    if urlsplit(target).scheme != 'https':
+                        raise SourceError('OPlus chuyển tới link CDN không dùng HTTPS.')
+                    return target, True
+                raw = await response.content.read(4097)
+                raise SourceError(oplus_error(raw, response.status))
+
+    async def get(self, url, headers=None, *, oplus=False):
         current = url
         headers = dict(headers or {})
         for _ in range(10):
@@ -169,7 +191,15 @@ class Sources:
             if r.status != 200:
                 r.release()
                 raise SourceError(f"Nguồn trả HTTP {r.status}; kiểm tra quyền chia sẻ, quota hoặc link hết hạn.")
-            if r.headers.get("Content-Encoding", "identity") != "identity":
+            if oplus and any(kind in r.headers.get('Content-Type', '').lower()
+                             for kind in ('json', 'html', 'xml')):
+                try:
+                    raw = await r.content.read(4097)
+                finally:
+                    r.release()
+                raise SourceError(oplus_error(raw, r.status))
+            encoding = r.headers.get("Content-Encoding", "identity").strip().lower()
+            if encoding not in ({'identity', 'utf-8', 'utf8'} if oplus else {'identity'}):
                 r.release()
                 raise SourceError("Nguồn gửi nội dung nén HTTP; cần link tải trả byte gốc.")
             return r
@@ -199,7 +229,8 @@ class Sources:
             download = api + "?alt=media&supportsAllDrives=true"
         else:
             download = normalize(url)
-        r = await self.get(download, auth)
+        download, oplus = await self.oplus_download(download)
+        r = await self.get(download, auth, oplus=True) if oplus else await self.get(download, auth)
         try:
             if "text/html" in r.headers.get("Content-Type", "").lower():
                 if not file_id:
@@ -220,3 +251,17 @@ class Sources:
                       "size": total, "md5": meta.get("md5Checksum")}
         finally:
             r.release()
+
+
+def oplus_error(raw, status):
+    code = ''
+    if len(raw) <= 4096:
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                value = obj.get('responseCode', obj.get('code'))
+                if isinstance(value, int) and not isinstance(value, bool) or isinstance(value, str) and re.fullmatch(r'\d{1,10}', value):
+                    code = ' (mã ' + str(value)[:10] + ')'
+        except (ValueError, UnicodeDecodeError):
+            pass
+    return f'OPlus downloadCheck/CDN chưa trả file ROM{code}, HTTP {status}. Link có thể hết hạn; lấy link mới và thử lại. Không upload JSON báo lỗi.'
