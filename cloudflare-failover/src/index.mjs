@@ -2,6 +2,7 @@ import {DurableObject} from 'cloudflare:workers';
 import {grant,freshState,LEASE_MS,authorized} from './lease.mjs';
 import {Controller} from './controller.mjs';
 import {BotError} from './services.mjs';
+import {publicPage} from './public-pages.mjs';
 
 const reply=(obj,status=200)=>Response.json(obj,{status,headers:{'Cache-Control':'no-store'}});
 function bots(env){return JSON.parse(env.BOTS_CONFIG);}
@@ -27,6 +28,7 @@ function accepts(update,config){
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
+    if(request.method==='GET'){const page=publicPage(url.pathname);if(page)return page;}
     if(request.method==='GET'&&url.pathname==='/health'){
       const states=await Promise.all(['onedrive','payload'].map(async bot=>{const response=await env.BOT_STATE.get(env.BOT_STATE.idFromName(bot)).fetch(new Request('https://state/status',{method:'POST',headers:{'Content-Type':'application/json','X-Bot':bot},body:'{}'}));const obj=await response.json();return [bot,obj.leader||'waiting'];}));
       return reply({ok:true,service:'telegram-cloud-controller',controllers:Object.fromEntries(states)});
